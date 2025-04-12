@@ -36,7 +36,7 @@ enum {
 	BTS_STATE_ACTIVE,
 };
 
-static DEFINE_PER_CPU(struct bts_ctx, bts_ctx);
+static struct bts_ctx __percpu *bts_ctx;
 
 #define BTS_RECORD_SIZE		24
 #define BTS_SAFETY_MARGIN	4080
@@ -58,14 +58,22 @@ struct bts_buffer {
 	local_t		head;
 	unsigned long	end;
 	void		**data_pages;
-	struct bts_phys	buf[0];
+	struct bts_phys	buf[] __counted_by(nr_bufs);
 };
 
 static struct pmu bts_pmu;
 
+static int buf_nr_pages(struct page *page)
+{
+	if (!PagePrivate(page))
+		return 1;
+
+	return 1 << page_private(page);
+}
+
 static size_t buf_size(struct page *page)
 {
-	return 1 << (PAGE_SHIFT + page_private(page));
+	return buf_nr_pages(page) * PAGE_SIZE;
 }
 
 static void *
@@ -83,9 +91,7 @@ bts_buffer_setup_aux(struct perf_event *event, void **pages,
 	/* count all the high order buffers */
 	for (pg = 0, nbuf = 0; pg < nr_pages;) {
 		page = virt_to_page(pages[pg]);
-		if (WARN_ON_ONCE(!PagePrivate(page) && nr_pages > 1))
-			return NULL;
-		pg += 1 << page_private(page);
+		pg += buf_nr_pages(page);
 		nbuf++;
 	}
 
@@ -109,7 +115,7 @@ bts_buffer_setup_aux(struct perf_event *event, void **pages,
 		unsigned int __nr_pages;
 
 		page = virt_to_page(pages[pg]);
-		__nr_pages = PagePrivate(page) ? 1 << page_private(page) : 1;
+		__nr_pages = buf_nr_pages(page);
 		buf->buf[nbuf].page = page;
 		buf->buf[nbuf].offset = offset;
 		buf->buf[nbuf].displacement = (pad ? BTS_RECORD_SIZE - pad : 0);
@@ -203,6 +209,12 @@ static void bts_update(struct bts_ctx *bts)
 	} else {
 		local_set(&buf->data_size, head);
 	}
+
+	/*
+	 * Since BTS is coherent, just add compiler barrier to ensure
+	 * BTS updating is ordered against bts::handle::event.
+	 */
+	barrier();
 }
 
 static int
@@ -219,7 +231,7 @@ bts_buffer_reset(struct bts_buffer *buf, struct perf_output_handle *handle);
 
 static void __bts_event_start(struct perf_event *event)
 {
-	struct bts_ctx *bts = this_cpu_ptr(&bts_ctx);
+	struct bts_ctx *bts = this_cpu_ptr(bts_ctx);
 	struct bts_buffer *buf = perf_get_aux(&bts->handle);
 	u64 config = 0;
 
@@ -248,7 +260,7 @@ static void __bts_event_start(struct perf_event *event)
 static void bts_event_start(struct perf_event *event, int flags)
 {
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
-	struct bts_ctx *bts = this_cpu_ptr(&bts_ctx);
+	struct bts_ctx *bts = this_cpu_ptr(bts_ctx);
 	struct bts_buffer *buf;
 
 	buf = perf_aux_output_begin(&bts->handle, event);
@@ -278,7 +290,7 @@ fail_stop:
 
 static void __bts_event_stop(struct perf_event *event, int state)
 {
-	struct bts_ctx *bts = this_cpu_ptr(&bts_ctx);
+	struct bts_ctx *bts = this_cpu_ptr(bts_ctx);
 
 	/* ACTIVE -> INACTIVE(PMI)/STOPPED(->stop()) */
 	WRITE_ONCE(bts->state, state);
@@ -293,7 +305,7 @@ static void __bts_event_stop(struct perf_event *event, int state)
 static void bts_event_stop(struct perf_event *event, int flags)
 {
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
-	struct bts_ctx *bts = this_cpu_ptr(&bts_ctx);
+	struct bts_ctx *bts = this_cpu_ptr(bts_ctx);
 	struct bts_buffer *buf = NULL;
 	int state = READ_ONCE(bts->state);
 
@@ -326,9 +338,14 @@ static void bts_event_stop(struct perf_event *event, int flags)
 
 void intel_bts_enable_local(void)
 {
-	struct bts_ctx *bts = this_cpu_ptr(&bts_ctx);
-	int state = READ_ONCE(bts->state);
+	struct bts_ctx *bts;
+	int state;
 
+	if (!bts_ctx)
+		return;
+
+	bts = this_cpu_ptr(bts_ctx);
+	state = READ_ONCE(bts->state);
 	/*
 	 * Here we transition from INACTIVE to ACTIVE;
 	 * if we instead are STOPPED from the interrupt handler,
@@ -346,7 +363,12 @@ void intel_bts_enable_local(void)
 
 void intel_bts_disable_local(void)
 {
-	struct bts_ctx *bts = this_cpu_ptr(&bts_ctx);
+	struct bts_ctx *bts;
+
+	if (!bts_ctx)
+		return;
+
+	bts = this_cpu_ptr(bts_ctx);
 
 	/*
 	 * Here we transition from ACTIVE to INACTIVE;
@@ -438,12 +460,17 @@ bts_buffer_reset(struct bts_buffer *buf, struct perf_output_handle *handle)
 int intel_bts_interrupt(void)
 {
 	struct debug_store *ds = this_cpu_ptr(&cpu_hw_events)->ds;
-	struct bts_ctx *bts = this_cpu_ptr(&bts_ctx);
-	struct perf_event *event = bts->handle.event;
+	struct bts_ctx *bts;
+	struct perf_event *event;
 	struct bts_buffer *buf;
 	s64 old_head;
 	int err = -ENOSPC, handled = 0;
 
+	if (!bts_ctx)
+		return 0;
+
+	bts = this_cpu_ptr(bts_ctx);
+	event = bts->handle.event;
 	/*
 	 * The only surefire way of knowing if this NMI is ours is by checking
 	 * the write ptr against the PMI threshold.
@@ -506,7 +533,7 @@ static void bts_event_del(struct perf_event *event, int mode)
 
 static int bts_event_add(struct perf_event *event, int mode)
 {
-	struct bts_ctx *bts = this_cpu_ptr(&bts_ctx);
+	struct bts_ctx *bts = this_cpu_ptr(bts_ctx);
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
 	struct hw_perf_event *hwc = &event->hw;
 
@@ -545,13 +572,12 @@ static int bts_event_init(struct perf_event *event)
 	 * disabled, so disallow intel_bts driver for unprivileged
 	 * users on paranoid systems since it provides trace data
 	 * to the user in a zero-copy fashion.
-	 *
-	 * Note that the default paranoia setting permits unprivileged
-	 * users to profile the kernel.
 	 */
-	if (event->attr.exclude_kernel && perf_paranoid_kernel() &&
-	    !capable(CAP_SYS_ADMIN))
-		return -EACCES;
+	if (event->attr.exclude_kernel) {
+		ret = perf_allow_kernel();
+		if (ret)
+			return ret;
+	}
 
 	if (x86_add_exclusive(x86_lbr_exclusive_bts))
 		return -EBUSY;
@@ -586,13 +612,17 @@ static __init int bts_init(void)
 		 * we cannot use the user mapping since it will not be available
 		 * if we're not running the owning process.
 		 *
-		 * With PTI we can't use the kernal map either, because its not
+		 * With PTI we can't use the kernel map either, because its not
 		 * there when we run userspace.
 		 *
 		 * For now, disable this driver when using PTI.
 		 */
 		return -ENODEV;
 	}
+
+	bts_ctx = alloc_percpu(struct bts_ctx);
+	if (!bts_ctx)
+		return -ENOMEM;
 
 	bts_pmu.capabilities	= PERF_PMU_CAP_AUX_NO_SG | PERF_PMU_CAP_ITRACE |
 				  PERF_PMU_CAP_EXCLUSIVE;

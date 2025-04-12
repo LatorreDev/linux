@@ -8,8 +8,10 @@
 #include <linux/init.h>
 
 #include <linux/of.h>
-#include <linux/clk-provider.h>
+#include <linux/of_clk.h>
 #include <linux/clocksource.h>
+
+#include <asm/time.h>
 
 #include "common.h"
 

@@ -7,7 +7,6 @@
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include <sound/jack.h>
-#include <linux/gpio.h>
 #include <linux/module.h>
 
 #include "../codecs/wm5102.h"
@@ -59,8 +58,8 @@ static int bells_set_bias_level(struct snd_soc_card *card,
 	struct bells_drvdata *bells = card->drvdata;
 	int ret;
 
-	rtd = snd_soc_get_pcm_runtime(card, card->dai_link[DAI_DSP_CODEC].name);
-	codec_dai = rtd->codec_dai;
+	rtd = snd_soc_get_pcm_runtime(card, &card->dai_link[DAI_DSP_CODEC]);
+	codec_dai = snd_soc_rtd_to_codec(rtd, 0);
 	component = codec_dai->component;
 
 	if (dapm->dev != codec_dai->dev)
@@ -105,8 +104,8 @@ static int bells_set_bias_level_post(struct snd_soc_card *card,
 	struct bells_drvdata *bells = card->drvdata;
 	int ret;
 
-	rtd = snd_soc_get_pcm_runtime(card, card->dai_link[DAI_DSP_CODEC].name);
-	codec_dai = rtd->codec_dai;
+	rtd = snd_soc_get_pcm_runtime(card, &card->dai_link[DAI_DSP_CODEC]);
+	codec_dai = snd_soc_rtd_to_codec(rtd, 0);
 	component = codec_dai->component;
 
 	if (dapm->dev != codec_dai->dev)
@@ -151,12 +150,12 @@ static int bells_late_probe(struct snd_soc_card *card)
 	struct snd_soc_dai *wm9081_dai;
 	int ret;
 
-	rtd = snd_soc_get_pcm_runtime(card, card->dai_link[DAI_AP_DSP].name);
-	wm0010 = rtd->codec_dai->component;
+	rtd = snd_soc_get_pcm_runtime(card, &card->dai_link[DAI_AP_DSP]);
+	wm0010 = snd_soc_rtd_to_codec(rtd, 0)->component;
 
-	rtd = snd_soc_get_pcm_runtime(card, card->dai_link[DAI_DSP_CODEC].name);
-	component = rtd->codec_dai->component;
-	aif1_dai = rtd->codec_dai;
+	rtd = snd_soc_get_pcm_runtime(card, &card->dai_link[DAI_DSP_CODEC]);
+	component = snd_soc_rtd_to_codec(rtd, 0)->component;
+	aif1_dai = snd_soc_rtd_to_codec(rtd, 0);
 
 	ret = snd_soc_component_set_sysclk(component, ARIZONA_CLK_SYSCLK,
 				       ARIZONA_CLK_SRC_FLL1,
@@ -194,8 +193,8 @@ static int bells_late_probe(struct snd_soc_card *card)
 		return ret;
 	}
 
-	rtd = snd_soc_get_pcm_runtime(card, card->dai_link[DAI_CODEC_CP].name);
-	aif2_dai = rtd->cpu_dai;
+	rtd = snd_soc_get_pcm_runtime(card, &card->dai_link[DAI_CODEC_CP]);
+	aif2_dai = snd_soc_rtd_to_cpu(rtd, 0);
 
 	ret = snd_soc_dai_set_sysclk(aif2_dai, ARIZONA_CLK_ASYNCCLK, 0, 0);
 	if (ret != 0) {
@@ -206,9 +205,9 @@ static int bells_late_probe(struct snd_soc_card *card)
 	if (card->num_rtd == DAI_CODEC_SUB)
 		return 0;
 
-	rtd = snd_soc_get_pcm_runtime(card, card->dai_link[DAI_CODEC_SUB].name);
-	aif3_dai = rtd->cpu_dai;
-	wm9081_dai = rtd->codec_dai;
+	rtd = snd_soc_get_pcm_runtime(card, &card->dai_link[DAI_CODEC_SUB]);
+	aif3_dai = snd_soc_rtd_to_cpu(rtd, 0);
+	wm9081_dai = snd_soc_rtd_to_codec(rtd, 0);
 
 	ret = snd_soc_dai_set_sysclk(aif3_dai, ARIZONA_CLK_SYSCLK, 0, 0);
 	if (ret != 0) {
@@ -256,15 +255,16 @@ static struct snd_soc_dai_link bells_dai_wm2200[] = {
 		.name = "CPU-DSP",
 		.stream_name = "CPU-DSP",
 		.dai_fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF
-				| SND_SOC_DAIFMT_CBM_CFM,
+				| SND_SOC_DAIFMT_CBP_CFP,
 		SND_SOC_DAILINK_REG(wm2200_cpu_dsp),
 	},
 	{
 		.name = "DSP-CODEC",
 		.stream_name = "DSP-CODEC",
 		.dai_fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF
-				| SND_SOC_DAIFMT_CBM_CFM,
-		.params = &sub_params,
+				| SND_SOC_DAIFMT_CBP_CFP,
+		.c2c_params = &sub_params,
+		.num_c2c_params = 1,
 		.ignore_suspend = 1,
 		SND_SOC_DAILINK_REG(wm2200_dsp_codec),
 	},
@@ -292,15 +292,16 @@ static struct snd_soc_dai_link bells_dai_wm5102[] = {
 		.name = "CPU-DSP",
 		.stream_name = "CPU-DSP",
 		.dai_fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF
-				| SND_SOC_DAIFMT_CBM_CFM,
+				| SND_SOC_DAIFMT_CBP_CFP,
 		SND_SOC_DAILINK_REG(wm5102_cpu_dsp),
 	},
 	{
 		.name = "DSP-CODEC",
 		.stream_name = "DSP-CODEC",
 		.dai_fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF
-				| SND_SOC_DAIFMT_CBM_CFM,
-		.params = &sub_params,
+				| SND_SOC_DAIFMT_CBP_CFP,
+		.c2c_params = &sub_params,
+		.num_c2c_params = 1,
 		.ignore_suspend = 1,
 		SND_SOC_DAILINK_REG(wm5102_dsp_codec),
 	},
@@ -308,18 +309,20 @@ static struct snd_soc_dai_link bells_dai_wm5102[] = {
 		.name = "Baseband",
 		.stream_name = "Baseband",
 		.dai_fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF
-				| SND_SOC_DAIFMT_CBM_CFM,
+				| SND_SOC_DAIFMT_CBP_CFP,
 		.ignore_suspend = 1,
-		.params = &baseband_params,
+		.c2c_params = &baseband_params,
+		.num_c2c_params = 1,
 		SND_SOC_DAILINK_REG(wm5102_baseband),
 	},
 	{
 		.name = "Sub",
 		.stream_name = "Sub",
 		.dai_fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF
-				| SND_SOC_DAIFMT_CBS_CFS,
+				| SND_SOC_DAIFMT_CBC_CFC,
 		.ignore_suspend = 1,
-		.params = &sub_params,
+		.c2c_params = &sub_params,
+		.num_c2c_params = 1,
 		SND_SOC_DAILINK_REG(wm5102_sub),
 	},
 };
@@ -347,15 +350,16 @@ static struct snd_soc_dai_link bells_dai_wm5110[] = {
 		.name = "CPU-DSP",
 		.stream_name = "CPU-DSP",
 		.dai_fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF
-				| SND_SOC_DAIFMT_CBM_CFM,
+				| SND_SOC_DAIFMT_CBP_CFP,
 		SND_SOC_DAILINK_REG(wm5110_cpu_dsp),
 	},
 	{
 		.name = "DSP-CODEC",
 		.stream_name = "DSP-CODEC",
 		.dai_fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF
-				| SND_SOC_DAIFMT_CBM_CFM,
-		.params = &sub_params,
+				| SND_SOC_DAIFMT_CBP_CFP,
+		.c2c_params = &sub_params,
+		.num_c2c_params = 1,
 		.ignore_suspend = 1,
 		SND_SOC_DAILINK_REG(wm5110_dsp_codec),
 	},
@@ -363,34 +367,36 @@ static struct snd_soc_dai_link bells_dai_wm5110[] = {
 		.name = "Baseband",
 		.stream_name = "Baseband",
 		.dai_fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF
-				| SND_SOC_DAIFMT_CBM_CFM,
+				| SND_SOC_DAIFMT_CBP_CFP,
 		.ignore_suspend = 1,
-		.params = &baseband_params,
+		.c2c_params = &baseband_params,
+		.num_c2c_params = 1,
 		SND_SOC_DAILINK_REG(wm5110_baseband),
 	},
 	{
 		.name = "Sub",
 		.stream_name = "Sub",
 		.dai_fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF
-				| SND_SOC_DAIFMT_CBS_CFS,
+				| SND_SOC_DAIFMT_CBC_CFC,
 		.ignore_suspend = 1,
-		.params = &sub_params,
+		.c2c_params = &sub_params,
+		.num_c2c_params = 1,
 		SND_SOC_DAILINK_REG(wm5110_sub),
 	},
 };
 
 static struct snd_soc_codec_conf bells_codec_conf[] = {
 	{
-		.dev_name = "wm9081.1-006c",
+		.dlc = COMP_CODEC_CONF("wm9081.1-006c"),
 		.name_prefix = "Sub",
 	},
 };
 
-static struct snd_soc_dapm_widget bells_widgets[] = {
+static const struct snd_soc_dapm_widget bells_widgets[] = {
 	SND_SOC_DAPM_MIC("DMIC", NULL),
 };
 
-static struct snd_soc_dapm_route bells_routes[] = {
+static const struct snd_soc_dapm_route bells_routes[] = {
 	{ "Sub CLK_SYS", NULL, "OPCLK" },
 	{ "CLKIN", NULL, "OPCLK" },
 

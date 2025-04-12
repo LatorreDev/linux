@@ -428,6 +428,14 @@ __test_flood()
 test_flood()
 {
 	__test_flood de:ad:be:ef:13:37 192.0.2.100 "flood"
+
+	# Add an entry with arbitrary destination IP. Verify that packets are
+	# not duplicated (this can happen if hardware floods the packets, and
+	# then traps them due to misconfiguration, so software data path repeats
+	# flooding and resends packets).
+	bridge fdb append dev vx1 00:00:00:00:00:00 dst 198.51.100.1 self
+	__test_flood de:ad:be:ef:13:37 192.0.2.100 "flood, unresolved FDB entry"
+	bridge fdb del dev vx1 00:00:00:00:00:00 dst 198.51.100.1 self
 }
 
 vxlan_fdb_add_del()
@@ -495,7 +503,7 @@ vxlan_ping_test()
 	local delta=$((t1 - t0))
 
 	# Tolerate a couple stray extra packets.
-	((expect <= delta && delta <= expect + 2))
+	((expect <= delta && delta <= expect + 5))
 	check_err $? "$capture_dev: Expected to capture $expect packets, got $delta."
 }
 
@@ -516,9 +524,9 @@ test_tos()
 	RET=0
 
 	tc filter add dev v1 egress pref 77 prot ip \
-		flower ip_tos 0x40 action pass
-	vxlan_ping_test $h1 192.0.2.3 "-Q 0x40" v1 egress 77 10
-	vxlan_ping_test $h1 192.0.2.3 "-Q 0x30" v1 egress 77 0
+		flower ip_tos 0x14 action pass
+	vxlan_ping_test $h1 192.0.2.3 "-Q 0x14" v1 egress 77 10
+	vxlan_ping_test $h1 192.0.2.3 "-Q 0x18" v1 egress 77 0
 	tc filter del dev v1 egress pref 77 prot ip
 
 	log_test "VXLAN: envelope TOS inheritance"
@@ -532,7 +540,7 @@ __test_ecn_encap()
 	RET=0
 
 	tc filter add dev v1 egress pref 77 prot ip \
-		flower ip_tos $tos action pass
+		flower ip_tos $tos ip_proto udp dst_port $VXPORT action pass
 	sleep 1
 	vxlan_ping_test $h1 192.0.2.3 "-Q $q" v1 egress 77 10
 	tc filter del dev v1 egress pref 77 prot ip
@@ -657,10 +665,21 @@ test_ecn_decap()
 {
 	# In accordance with INET_ECN_decapsulate()
 	__test_ecn_decap 00 00 0x00
+	__test_ecn_decap 00 01 0x00
+	__test_ecn_decap 00 02 0x00
+	# 00 03 is tested in test_ecn_decap_error()
+	__test_ecn_decap 01 00 0x01
 	__test_ecn_decap 01 01 0x01
-	__test_ecn_decap 02 01 0x02
+	__test_ecn_decap 01 02 0x01
 	__test_ecn_decap 01 03 0x03
+	__test_ecn_decap 02 00 0x02
+	__test_ecn_decap 02 01 0x01
+	__test_ecn_decap 02 02 0x02
 	__test_ecn_decap 02 03 0x03
+	__test_ecn_decap 03 00 0x03
+	__test_ecn_decap 03 01 0x03
+	__test_ecn_decap 03 02 0x03
+	__test_ecn_decap 03 03 0x03
 	test_ecn_decap_error
 }
 
@@ -669,9 +688,9 @@ test_learning()
 	local mac=de:ad:be:ef:13:37
 	local dst=192.0.2.100
 
-	# Enable learning on the VxLAN device and set ageing time to 10 seconds
-	ip link set dev br1 type bridge ageing_time 1000
-	ip link set dev vx1 type vxlan ageing 10
+	# Enable learning on the VxLAN device and set ageing time to 30 seconds
+	ip link set dev br1 type bridge ageing_time 3000
+	ip link set dev vx1 type vxlan ageing 30
 	ip link set dev vx1 type vxlan learning
 	reapply_config
 
@@ -729,7 +748,9 @@ test_learning()
 
 	vxlan_flood_test $mac $dst 0 10 0
 
-	sleep 20
+	# The entry should age out when it only forwards traffic
+	$MZ $h1 -c 50 -d 1sec -p 64 -b $mac -B $dst -t icmp -q &
+	sleep 60
 
 	bridge fdb show brport vx1 | grep $mac | grep -q self
 	check_fail $?

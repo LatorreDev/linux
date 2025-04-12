@@ -35,8 +35,11 @@
  *	Sven Schmidt <4sschmid@informatik.uni-hamburg.de>
  */
 
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
+
+#include <linux/bitops.h>
 #include <linux/string.h>	 /* memset, memcpy */
+#include <linux/lz4.h>
 
 #define FORCE_INLINE __always_inline
 
@@ -90,8 +93,7 @@ typedef uintptr_t uptrval;
 #define MB (1 << 20)
 #define GB (1U << 30)
 
-#define MAXD_LOG 16
-#define MAX_DISTANCE ((1 << MAXD_LOG) - 1)
+#define MAX_DISTANCE LZ4_DISTANCE_MAX
 #define STEPSIZE sizeof(size_t)
 
 #define ML_BITS	4
@@ -136,6 +138,17 @@ static FORCE_INLINE void LZ4_writeLE16(void *memPtr, U16 value)
 {
 	return put_unaligned_le16(value, memPtr);
 }
+
+/*
+ * LZ4 relies on memcpy with a constant size being inlined. In freestanding
+ * environments, the compiler can't assume the implementation of memcpy() is
+ * standard compliant, so apply its specialized memcpy() inlining logic. When
+ * possible, use __builtin_memcpy() to tell the compiler to analyze memcpy()
+ * as-if it were standard compliant, so it can inline it in freestanding
+ * environments. This is needed when decompressing the Linux Kernel, for example.
+ */
+#define LZ4_memcpy(dst, src, size) __builtin_memcpy(dst, src, size)
+#define LZ4_memmove(dst, src, size) __builtin_memmove(dst, src, size)
 
 static FORCE_INLINE void LZ4_copy8(void *dst, const void *src)
 {

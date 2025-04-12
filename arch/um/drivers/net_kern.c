@@ -160,7 +160,7 @@ static int uml_net_open(struct net_device *dev)
 
 	err = um_request_irq(dev->irq, lp->fd, IRQ_READ, uml_net_interrupt,
 			     IRQF_SHARED, dev->name, dev);
-	if (err != 0) {
+	if (err < 0) {
 		printk(KERN_ERR "uml_net_open: failed to get irq(%d)\n", err);
 		err = -ENETUNREACH;
 		goto out_close;
@@ -204,7 +204,7 @@ static int uml_net_close(struct net_device *dev)
 	return 0;
 }
 
-static int uml_net_start_xmit(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t uml_net_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct uml_net_private *lp = netdev_priv(dev);
 	unsigned long flags;
@@ -247,7 +247,7 @@ static void uml_net_set_multicast_list(struct net_device *dev)
 	return;
 }
 
-static void uml_net_tx_timeout(struct net_device *dev)
+static void uml_net_tx_timeout(struct net_device *dev, unsigned int txqueue)
 {
 	netif_trans_update(dev);
 	netif_wake_queue(dev);
@@ -265,8 +265,7 @@ static void uml_net_poll_controller(struct net_device *dev)
 static void uml_net_get_drvinfo(struct net_device *dev,
 				struct ethtool_drvinfo *info)
 {
-	strlcpy(info->driver, DRIVER_NAME, sizeof(info->driver));
-	strlcpy(info->version, "42", sizeof(info->version));
+	strscpy(info->driver, DRIVER_NAME);
 }
 
 static const struct ethtool_ops uml_net_ethtool_ops = {
@@ -275,20 +274,9 @@ static const struct ethtool_ops uml_net_ethtool_ops = {
 	.get_ts_info	= ethtool_op_get_ts_info,
 };
 
-static void uml_net_user_timer_expire(struct timer_list *t)
-{
-#ifdef undef
-	struct uml_net_private *lp = from_timer(lp, t, tl);
-	struct connection *conn = &lp->user;
-
-	dprintk(KERN_INFO "uml_net_user_timer_expire [%p]\n", conn);
-	do_connect(conn);
-#endif
-}
-
 void uml_net_setup_etheraddr(struct net_device *dev, char *str)
 {
-	unsigned char *addr = dev->dev_addr;
+	u8 addr[ETH_ALEN];
 	char *end;
 	int i;
 
@@ -328,6 +316,7 @@ void uml_net_setup_etheraddr(struct net_device *dev, char *str)
 		       addr[0] | 0x02, addr[1], addr[2], addr[3], addr[4],
 		       addr[5]);
 	}
+	eth_hw_addr_set(dev, addr);
 	return;
 
 random:
@@ -347,7 +336,7 @@ static struct platform_driver uml_net_driver = {
 
 static void net_device_release(struct device *dev)
 {
-	struct uml_net *device = dev_get_drvdata(dev);
+	struct uml_net *device = container_of(dev, struct uml_net, pdev.dev);
 	struct net_device *netdev = device->dev;
 	struct uml_net_private *lp = netdev_priv(netdev);
 
@@ -456,7 +445,6 @@ static void eth_configure(int n, void *init, char *mac,
 		  .add_address 		= transport->user->add_address,
 		  .delete_address  	= transport->user->delete_address });
 
-	timer_setup(&lp->tl, uml_net_user_timer_expire, 0);
 	spin_lock_init(&lp->lock);
 	memcpy(lp->mac, dev->dev_addr, sizeof(lp->mac));
 
@@ -648,10 +636,7 @@ static int __init eth_setup(char *str)
 		return 1;
 	}
 
-	new = memblock_alloc(sizeof(*new), SMP_CACHE_BYTES);
-	if (!new)
-		panic("%s: Failed to allocate %zu bytes\n", __func__,
-		      sizeof(*new));
+	new = memblock_alloc_or_panic(sizeof(*new), SMP_CACHE_BYTES);
 
 	INIT_LIST_HEAD(&new->list);
 	new->index = n;

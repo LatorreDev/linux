@@ -3,7 +3,7 @@
  * ISP1704 USB Charger Detection driver
  *
  * Copyright (C) 2010 Nokia Corporation
- * Copyright (C) 2012 - 2013 Pali Rohár <pali.rohar@gmail.com>
+ * Copyright (C) 2012 - 2013 Pali Rohár <pali@kernel.org>
  */
 
 #include <linux/kernel.h>
@@ -477,15 +477,13 @@ fail0:
 	return ret;
 }
 
-static int isp1704_charger_remove(struct platform_device *pdev)
+static void isp1704_charger_remove(struct platform_device *pdev)
 {
 	struct isp1704_charger *isp = platform_get_drvdata(pdev);
 
 	usb_unregister_notifier(isp->phy, &isp->nb);
 	power_supply_unregister(isp->psy);
 	isp1704_charger_set_power(isp, 0);
-
-	return 0;
 }
 
 #ifdef CONFIG_OF

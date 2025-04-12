@@ -21,7 +21,6 @@
 #define RTC_CR_MIE	(1 << 0)
 
 struct pl030_rtc {
-	struct rtc_device	*rtc;
 	void __iomem		*base;
 };
 
@@ -36,32 +35,24 @@ static int pl030_read_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 {
 	struct pl030_rtc *rtc = dev_get_drvdata(dev);
 
-	rtc_time_to_tm(readl(rtc->base + RTC_MR), &alrm->time);
+	rtc_time64_to_tm(readl(rtc->base + RTC_MR), &alrm->time);
 	return 0;
 }
 
 static int pl030_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 {
 	struct pl030_rtc *rtc = dev_get_drvdata(dev);
-	unsigned long time;
-	int ret;
 
-	/*
-	 * At the moment, we can only deal with non-wildcarded alarm times.
-	 */
-	ret = rtc_valid_tm(&alrm->time);
-	if (ret == 0)
-		ret = rtc_tm_to_time(&alrm->time, &time);
-	if (ret == 0)
-		writel(time, rtc->base + RTC_MR);
-	return ret;
+	writel(rtc_tm_to_time64(&alrm->time), rtc->base + RTC_MR);
+
+	return 0;
 }
 
 static int pl030_read_time(struct device *dev, struct rtc_time *tm)
 {
 	struct pl030_rtc *rtc = dev_get_drvdata(dev);
 
-	rtc_time_to_tm(readl(rtc->base + RTC_DR), tm);
+	rtc_time64_to_tm(readl(rtc->base + RTC_DR), tm);
 
 	return 0;
 }
@@ -77,14 +68,10 @@ static int pl030_read_time(struct device *dev, struct rtc_time *tm)
 static int pl030_set_time(struct device *dev, struct rtc_time *tm)
 {
 	struct pl030_rtc *rtc = dev_get_drvdata(dev);
-	unsigned long time;
-	int ret;
 
-	ret = rtc_tm_to_time(tm, &time);
-	if (ret == 0)
-		writel(time + 1, rtc->base + RTC_LR);
+	writel(rtc_tm_to_time64(tm) + 1, rtc->base + RTC_LR);
 
-	return ret;
+	return 0;
 }
 
 static const struct rtc_class_ops pl030_ops = {
@@ -98,6 +85,7 @@ static int pl030_probe(struct amba_device *dev, const struct amba_id *id)
 {
 	struct pl030_rtc *rtc;
 	int ret;
+	struct rtc_device *rtc_dev;
 
 	ret = amba_request_regions(dev, NULL);
 	if (ret)
@@ -109,13 +97,14 @@ static int pl030_probe(struct amba_device *dev, const struct amba_id *id)
 		goto err_rtc;
 	}
 
-	rtc->rtc = devm_rtc_allocate_device(&dev->dev);
-	if (IS_ERR(rtc->rtc)) {
-		ret = PTR_ERR(rtc->rtc);
+	rtc_dev = devm_rtc_allocate_device(&dev->dev);
+	if (IS_ERR(rtc_dev)) {
+		ret = PTR_ERR(rtc_dev);
 		goto err_rtc;
 	}
 
-	rtc->rtc->ops = &pl030_ops;
+	rtc_dev->ops = &pl030_ops;
+	rtc_dev->range_max = U32_MAX;
 	rtc->base = ioremap(dev->res.start, resource_size(&dev->res));
 	if (!rtc->base) {
 		ret = -ENOMEM;
@@ -132,7 +121,7 @@ static int pl030_probe(struct amba_device *dev, const struct amba_id *id)
 	if (ret)
 		goto err_irq;
 
-	ret = rtc_register_device(rtc->rtc);
+	ret = devm_rtc_register_device(rtc_dev);
 	if (ret)
 		goto err_reg;
 
@@ -148,7 +137,7 @@ static int pl030_probe(struct amba_device *dev, const struct amba_id *id)
 	return ret;
 }
 
-static int pl030_remove(struct amba_device *dev)
+static void pl030_remove(struct amba_device *dev)
 {
 	struct pl030_rtc *rtc = amba_get_drvdata(dev);
 
@@ -157,11 +146,9 @@ static int pl030_remove(struct amba_device *dev)
 	free_irq(dev->irq[0], rtc);
 	iounmap(rtc->base);
 	amba_release_regions(dev);
-
-	return 0;
 }
 
-static struct amba_id pl030_ids[] = {
+static const struct amba_id pl030_ids[] = {
 	{
 		.id	= 0x00041030,
 		.mask	= 0x000fffff,

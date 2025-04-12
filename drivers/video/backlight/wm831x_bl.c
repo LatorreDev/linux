@@ -9,7 +9,6 @@
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/module.h>
-#include <linux/fb.h>
 #include <linux/backlight.h>
 #include <linux/slab.h>
 
@@ -91,18 +90,7 @@ err:
 
 static int wm831x_backlight_update_status(struct backlight_device *bl)
 {
-	int brightness = bl->props.brightness;
-
-	if (bl->props.power != FB_BLANK_UNBLANK)
-		brightness = 0;
-
-	if (bl->props.fb_blank != FB_BLANK_UNBLANK)
-		brightness = 0;
-
-	if (bl->props.state & BL_CORE_SUSPENDED)
-		brightness = 0;
-
-	return wm831x_backlight_set(bl, brightness);
+	return wm831x_backlight_set(bl, backlight_get_brightness(bl));
 }
 
 static int wm831x_backlight_get_brightness(struct backlight_device *bl)

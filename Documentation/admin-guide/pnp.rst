@@ -129,9 +129,6 @@ pnp_put_protocol
 pnp_register_protocol
   use this to register a new PnP protocol
 
-pnp_unregister_protocol
-  use this function to remove a PnP protocol from the Plug and Play Layer
-
 pnp_register_driver
   adds a PnP driver to the Plug and Play Layer
 
@@ -280,10 +277,6 @@ A series of compatibility functions have been created to make it easy to convert
 ISAPNP drivers.  They should serve as a temporary solution only.
 
 They are as follows::
-
-	struct pnp_card *pnp_find_card(unsigned short vendor,
-				       unsigned short device,
-				       struct pnp_card *from)
 
 	struct pnp_dev *pnp_find_dev(struct pnp_card *card,
 				     unsigned short vendor,

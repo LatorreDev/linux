@@ -196,14 +196,8 @@ the aforementioned cipher types:
 
 -  CRYPTO_ALG_TYPE_CIPHER Single block cipher
 
--  CRYPTO_ALG_TYPE_COMPRESS Compression
-
 -  CRYPTO_ALG_TYPE_AEAD Authenticated Encryption with Associated Data
    (MAC)
-
--  CRYPTO_ALG_TYPE_BLKCIPHER Synchronous multi-block cipher
-
--  CRYPTO_ALG_TYPE_ABLKCIPHER Asynchronous multi-block cipher
 
 -  CRYPTO_ALG_TYPE_KPP Key-agreement Protocol Primitive (KPP) such as
    an ECDH or DH implementation
@@ -217,6 +211,8 @@ the aforementioned cipher types:
 -  CRYPTO_ALG_TYPE_RNG Random Number Generation
 
 -  CRYPTO_ALG_TYPE_AKCIPHER Asymmetric cipher
+
+-  CRYPTO_ALG_TYPE_SIG Asymmetric signature
 
 -  CRYPTO_ALG_TYPE_PCOMPRESS Enhanced version of
    CRYPTO_ALG_TYPE_COMPRESS allowing for segmented compression /

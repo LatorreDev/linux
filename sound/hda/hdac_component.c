@@ -5,6 +5,7 @@
 #include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/component.h>
+#include <linux/string_choices.h>
 #include <sound/core.h>
 #include <sound/hdaudio.h>
 #include <sound/hda_component.h>
@@ -42,8 +43,7 @@ int snd_hdac_set_codec_wakeup(struct hdac_bus *bus, bool enable)
 	if (!acomp->ops->codec_wake_override)
 		return 0;
 
-	dev_dbg(bus->dev, "%s codec wakeup\n",
-		enable ? "enable" : "disable");
+	dev_dbg(bus->dev, "%s codec wakeup\n", str_enable_disable(enable));
 
 	acomp->ops->codec_wake_override(acomp->dev, enable);
 
@@ -67,8 +67,7 @@ void snd_hdac_display_power(struct hdac_bus *bus, unsigned int idx, bool enable)
 {
 	struct drm_audio_component *acomp = bus->audio_component;
 
-	dev_dbg(bus->dev, "display power %s\n",
-		enable ? "enable" : "disable");
+	dev_dbg(bus->dev, "display power %s\n", str_enable_disable(enable));
 
 	mutex_lock(&bus->lock);
 	if (enable)
@@ -210,12 +209,14 @@ static int hdac_component_master_bind(struct device *dev)
 			goto module_put;
 	}
 
+	complete_all(&acomp->master_bind_complete);
 	return 0;
 
  module_put:
 	module_put(acomp->ops->owner);
 out_unbind:
 	component_unbind_all(dev, acomp);
+	complete_all(&acomp->master_bind_complete);
 
 	return ret;
 }
@@ -262,6 +263,7 @@ EXPORT_SYMBOL_GPL(snd_hdac_acomp_register_notifier);
 /**
  * snd_hdac_acomp_init - Initialize audio component
  * @bus: HDA core bus
+ * @aops: audio component ops
  * @match_master: match function for finding components
  * @extra_size: Extra bytes to allocate
  *
@@ -295,6 +297,7 @@ int snd_hdac_acomp_init(struct hdac_bus *bus,
 	if (!acomp)
 		return -ENOMEM;
 	acomp->audio_ops = aops;
+	init_completion(&acomp->master_bind_complete);
 	bus->audio_component = acomp;
 	devres_add(dev, acomp);
 

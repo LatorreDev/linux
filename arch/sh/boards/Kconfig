@@ -7,6 +7,11 @@ config SOLUTION_ENGINE
 config SH_ALPHA_BOARD
 	bool
 
+config SH_CUSTOM_CLK
+	def_bool y
+	depends on !SH_DEVICE_TREE
+	select HAVE_LEGACY_CLK
+
 config SH_DEVICE_TREE
 	bool
 	select OF
@@ -75,8 +80,8 @@ config SH_7724_SOLUTION_ENGINE
 	select SOLUTION_ENGINE
 	depends on CPU_SUBTYPE_SH7724
 	select GPIOLIB
-	select SND_SOC_AK4642 if SND_SIMPLE_CARD
 	select REGULATOR_FIXED_VOLTAGE if REGULATOR
+	imply SND_SOC_AK4642 if SND_SIMPLE_CARD
 	help
 	  Select 7724 SolutionEngine if configuring for a Hitachi SH7724
 	  evaluation board.
@@ -254,8 +259,8 @@ config SH_ECOVEC
 	bool "EcoVec"
 	depends on CPU_SUBTYPE_SH7724
 	select GPIOLIB
-	select SND_SOC_DA7210 if SND_SIMPLE_CARD
 	select REGULATOR_FIXED_VOLTAGE if REGULATOR
+	imply SND_SOC_DA7210 if SND_SIMPLE_CARD
 	help
 	  Renesas "R0P7724LC0011/21RL (EcoVec)" support.
 
@@ -283,13 +288,6 @@ config SH_EDOSK7760
 	help
 	  Select if configuring for a Renesas EDOSK7760
 	  evaluation board.
-
-config SH_SH4202_MICRODEV
-	bool "SH4-202 MicroDev"
-	depends on CPU_SUBTYPE_SH4_202
-	help
-	  Select SH4-202 MicroDev if configuring for a SuperH MicroDev board
-	  with an SH4-202 CPU.
 
 config SH_LANDISK
 	bool "LANDISK"
@@ -335,12 +333,6 @@ config SH_MAGIC_PANEL_R2
 	help
 	  Select Magic Panel R2 if configuring for Magic Panel R2.
 
-config SH_CAYMAN
-	bool "Hitachi Cayman"
-	depends on CPU_SUBTYPE_SH5_101 || CPU_SUBTYPE_SH5_103
-	select HAVE_PCI
-	select ARCH_MIGHT_HAVE_PC_SERIO
-
 config SH_POLARIS
 	bool "SMSC Polaris"
 	select CPU_HAS_IPR_IRQ
@@ -359,7 +351,6 @@ config SH_SH2007
 	  intended for embedded applications.
 	  It has an Ethernet interface (SMC9118), direct connected
 	  Compact Flash socket, two serial ports and PC-104 bus.
-	  More information at <http://sh2000.sh-linux.org>.
 
 config SH_APSH4A3A
 	bool "AP-SH4A-3A"

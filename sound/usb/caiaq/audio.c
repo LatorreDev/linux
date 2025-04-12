@@ -30,7 +30,7 @@
 #define MAKE_CHECKBYTE(cdev,stream,i) \
 	(stream << 1) | (~(i / (cdev->n_streams * BYTES_PER_SAMPLE_USB)) & 1)
 
-static struct snd_pcm_hardware snd_usb_caiaq_pcm_hardware = {
+static const struct snd_pcm_hardware snd_usb_caiaq_pcm_hardware = {
 	.info 		= (SNDRV_PCM_INFO_MMAP | SNDRV_PCM_INFO_INTERLEAVED |
 			   SNDRV_PCM_INFO_BLOCK_TRANSFER),
 	.formats 	= SNDRV_PCM_FMTBIT_S24_3BE,
@@ -167,31 +167,16 @@ static int snd_usb_caiaq_substream_close(struct snd_pcm_substream *substream)
 	return 0;
 }
 
-static int snd_usb_caiaq_pcm_hw_params(struct snd_pcm_substream *sub,
-				       struct snd_pcm_hw_params *hw_params)
-{
-	return snd_pcm_lib_alloc_vmalloc_buffer(sub,
-						params_buffer_bytes(hw_params));
-}
-
 static int snd_usb_caiaq_pcm_hw_free(struct snd_pcm_substream *sub)
 {
 	struct snd_usb_caiaqdev *cdev = snd_pcm_substream_chip(sub);
 	deactivate_substream(cdev, sub);
-	return snd_pcm_lib_free_vmalloc_buffer(sub);
+	return 0;
 }
-
-/* this should probably go upstream */
-#if SNDRV_PCM_RATE_5512 != 1 << 0 || SNDRV_PCM_RATE_192000 != 1 << 12
-#error "Change this table"
-#endif
-
-static unsigned int rates[] = { 5512, 8000, 11025, 16000, 22050, 32000, 44100,
-				48000, 64000, 88200, 96000, 176400, 192000 };
 
 static int snd_usb_caiaq_pcm_prepare(struct snd_pcm_substream *substream)
 {
-	int bytes_per_sample, bpp, ret, i;
+	int bytes_per_sample, bpp, ret;
 	int index = substream->number;
 	struct snd_usb_caiaqdev *cdev = snd_pcm_substream_chip(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
@@ -240,10 +225,7 @@ static int snd_usb_caiaq_pcm_prepare(struct snd_pcm_substream *substream)
 
 	/* the first client that opens a stream defines the sample rate
 	 * setting for all subsequent calls, until the last client closed. */
-	for (i=0; i < ARRAY_SIZE(rates); i++)
-		if (runtime->rate == rates[i])
-			cdev->pcm_info.rates = 1 << i;
-
+	cdev->pcm_info.rates = snd_pcm_rate_to_rate_bit(runtime->rate);
 	snd_pcm_limit_hw_rates(runtime);
 
 	bytes_per_sample = BYTES_PER_SAMPLE;
@@ -328,13 +310,10 @@ unlock:
 static const struct snd_pcm_ops snd_usb_caiaq_ops = {
 	.open =		snd_usb_caiaq_substream_open,
 	.close =	snd_usb_caiaq_substream_close,
-	.ioctl =	snd_pcm_lib_ioctl,
-	.hw_params =	snd_usb_caiaq_pcm_hw_params,
 	.hw_free =	snd_usb_caiaq_pcm_hw_free,
 	.prepare =	snd_usb_caiaq_pcm_prepare,
 	.trigger =	snd_usb_caiaq_pcm_trigger,
 	.pointer =	snd_usb_caiaq_pcm_pointer,
-	.page =		snd_pcm_lib_get_vmalloc_page,
 };
 
 static void check_for_elapsed_periods(struct snd_usb_caiaqdev *cdev,
@@ -814,7 +793,7 @@ int snd_usb_caiaq_audio_init(struct snd_usb_caiaqdev *cdev)
 	}
 
 	cdev->pcm->private_data = cdev;
-	strlcpy(cdev->pcm->name, cdev->product_name, sizeof(cdev->pcm->name));
+	strscpy(cdev->pcm->name, cdev->product_name, sizeof(cdev->pcm->name));
 
 	memset(cdev->sub_playback, 0, sizeof(cdev->sub_playback));
 	memset(cdev->sub_capture, 0, sizeof(cdev->sub_capture));
@@ -830,7 +809,7 @@ int snd_usb_caiaq_audio_init(struct snd_usb_caiaqdev *cdev)
 	case USB_ID(USB_VID_NATIVEINSTRUMENTS, USB_PID_SESSIONIO):
 	case USB_ID(USB_VID_NATIVEINSTRUMENTS, USB_PID_GUITARRIGMOBILE):
 		cdev->samplerates |= SNDRV_PCM_RATE_192000;
-		/* fall thru */
+		fallthrough;
 	case USB_ID(USB_VID_NATIVEINSTRUMENTS, USB_PID_AUDIO2DJ):
 	case USB_ID(USB_VID_NATIVEINSTRUMENTS, USB_PID_AUDIO4DJ):
 	case USB_ID(USB_VID_NATIVEINSTRUMENTS, USB_PID_AUDIO8DJ):
@@ -843,6 +822,8 @@ int snd_usb_caiaq_audio_init(struct snd_usb_caiaqdev *cdev)
 				&snd_usb_caiaq_ops);
 	snd_pcm_set_ops(cdev->pcm, SNDRV_PCM_STREAM_CAPTURE,
 				&snd_usb_caiaq_ops);
+	snd_pcm_set_managed_buffer_all(cdev->pcm, SNDRV_DMA_TYPE_VMALLOC,
+				       NULL, 0, 0);
 
 	cdev->data_cb_info =
 		kmalloc_array(N_URBS, sizeof(struct snd_usb_caiaq_cb_info),
@@ -877,14 +858,20 @@ int snd_usb_caiaq_audio_init(struct snd_usb_caiaqdev *cdev)
 	return 0;
 }
 
-void snd_usb_caiaq_audio_free(struct snd_usb_caiaqdev *cdev)
+void snd_usb_caiaq_audio_disconnect(struct snd_usb_caiaqdev *cdev)
 {
 	struct device *dev = caiaqdev_to_dev(cdev);
 
 	dev_dbg(dev, "%s(%p)\n", __func__, cdev);
 	stream_stop(cdev);
+}
+
+void snd_usb_caiaq_audio_free(struct snd_usb_caiaqdev *cdev)
+{
+	struct device *dev = caiaqdev_to_dev(cdev);
+
+	dev_dbg(dev, "%s(%p)\n", __func__, cdev);
 	free_urbs(cdev->data_urbs_in);
 	free_urbs(cdev->data_urbs_out);
 	kfree(cdev->data_cb_info);
 }
-

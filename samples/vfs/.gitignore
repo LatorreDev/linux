@@ -1,2 +1,5 @@
-test-fsmount
-test-statx
+# SPDX-License-Identifier: GPL-2.0-only
+/test-fsmount
+/test-list-all-mounts
+/test-statx
+/mountinfo

@@ -1,17 +1,14 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * uClinux flat-format executables
  *
  * Copyright (C) 2005 John Williams <jwilliams@itee.uq.edu.au>
- *
- * This file is subject to the terms and conditions of the GNU General
- * Public License. See the file COPYING in the main directory of this
- * archive for more details.
  */
 
 #ifndef _ASM_MICROBLAZE_FLAT_H
 #define _ASM_MICROBLAZE_FLAT_H
 
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 /*
  * Microblaze works a little differently from other arches, because

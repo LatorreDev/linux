@@ -747,7 +747,6 @@ static struct pinctrl_desc tb10x_pindesc = {
 static int tb10x_pinctrl_probe(struct platform_device *pdev)
 {
 	int ret = -EINVAL;
-	struct resource *mem;
 	struct device *dev = &pdev->dev;
 	struct device_node *of_node = dev->of_node;
 	struct device_node *child;
@@ -768,8 +767,7 @@ static int tb10x_pinctrl_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, state);
 	mutex_init(&state->mutex);
 
-	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	state->base = devm_ioremap_resource(dev, mem);
+	state->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(state->base)) {
 		ret = PTR_ERR(state->base);
 		goto fail;
@@ -806,13 +804,11 @@ fail:
 	return ret;
 }
 
-static int tb10x_pinctrl_remove(struct platform_device *pdev)
+static void tb10x_pinctrl_remove(struct platform_device *pdev)
 {
 	struct tb10x_pinctrl *state = platform_get_drvdata(pdev);
 
 	mutex_destroy(&state->mutex);
-
-	return 0;
 }
 
 
@@ -834,4 +830,5 @@ static struct platform_driver tb10x_pinctrl_pdrv = {
 module_platform_driver(tb10x_pinctrl_pdrv);
 
 MODULE_AUTHOR("Christian Ruppert <christian.ruppert@abilis.com>");
+MODULE_DESCRIPTION("Abilis Systems TB10x pinctrl driver");
 MODULE_LICENSE("GPL");

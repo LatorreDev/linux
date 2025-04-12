@@ -12,7 +12,6 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
-#include <linux/fb.h>
 #include <linux/backlight.h>
 #include <linux/mfd/da903x.h>
 #include <linux/slab.h>
@@ -77,18 +76,7 @@ static int da903x_backlight_set(struct backlight_device *bl, int brightness)
 
 static int da903x_backlight_update_status(struct backlight_device *bl)
 {
-	int brightness = bl->props.brightness;
-
-	if (bl->props.power != FB_BLANK_UNBLANK)
-		brightness = 0;
-
-	if (bl->props.fb_blank != FB_BLANK_UNBLANK)
-		brightness = 0;
-
-	if (bl->props.state & BL_CORE_SUSPENDED)
-		brightness = 0;
-
-	return da903x_backlight_set(bl, brightness);
+	return da903x_backlight_set(bl, backlight_get_brightness(bl));
 }
 
 static int da903x_backlight_get_brightness(struct backlight_device *bl)

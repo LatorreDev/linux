@@ -15,7 +15,7 @@
 struct pstack {
 	unsigned short	top;
 	unsigned short	max_nr_entries;
-	void		*entries[0];
+	void		*entries[];
 };
 
 struct pstack *pstack__new(unsigned short max_nr_entries)
@@ -61,20 +61,6 @@ void pstack__push(struct pstack *pstack, void *key)
 		return;
 	}
 	pstack->entries[pstack->top++] = key;
-}
-
-void *pstack__pop(struct pstack *pstack)
-{
-	void *ret;
-
-	if (pstack->top == 0) {
-		pr_err("%s: underflow!\n", __func__);
-		return NULL;
-	}
-
-	ret = pstack->entries[--pstack->top];
-	pstack->entries[pstack->top] = NULL;
-	return ret;
 }
 
 void *pstack__peek(struct pstack *pstack)

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright (c) 2013-2014, Intel Corporation. All rights reserved.
+ * Copyright (c) 2013-2022, Intel Corporation. All rights reserved.
  * Intel Management Engine Interface (Intel MEI) Linux driver
  */
 
@@ -176,7 +176,7 @@ static bool mei_txe_aliveness_set(struct mei_device *dev, u32 req)
  * @dev: the device structure
  *
  * Extract HICR_HOST_ALIVENESS_RESP_ACK bit from
- * from HICR_HOST_ALIVENESS_REQ register value
+ * HICR_HOST_ALIVENESS_REQ register value
  *
  * Return: SICR_HOST_ALIVENESS_REQ_REQUESTED bit value
  */
@@ -660,14 +660,16 @@ static int mei_txe_fw_status(struct mei_device *dev,
 }
 
 /**
- *  mei_txe_hw_config - configure hardware at the start of the devices
+ * mei_txe_hw_config - configure hardware at the start of the devices
  *
  * @dev: the device structure
  *
  * Configure hardware at the start of the device should be done only
  *   once at the device probe time
+ *
+ * Return: always 0
  */
-static void mei_txe_hw_config(struct mei_device *dev)
+static int mei_txe_hw_config(struct mei_device *dev)
 {
 
 	struct mei_txe_hw *hw = to_txe_hw(dev);
@@ -677,6 +679,8 @@ static void mei_txe_hw_config(struct mei_device *dev)
 
 	dev_dbg(dev->dev, "aliveness_resp = 0x%08x, readiness = 0x%08x.\n",
 		hw->aliveness, hw->readiness);
+
+	return 0;
 }
 
 /**
@@ -990,11 +994,7 @@ static bool mei_txe_check_and_ack_intrs(struct mei_device *dev, bool do_ack)
 		hhisr &= ~IPC_HHIER_SEC;
 	}
 
-	generated = generated ||
-		(hisr & HISR_INT_STS_MSK) ||
-		(ipc_isr & SEC_IPC_HOST_INT_STATUS_PENDING);
-
-	if (generated && do_ack) {
+	if (do_ack) {
 		/* Save the interrupt causes */
 		hw->intr_cause |= hisr & HISR_INT_STS_MSK;
 		if (ipc_isr & SEC_IPC_HOST_INT_STATUS_IN_RDY)
@@ -1197,61 +1197,15 @@ struct mei_device *mei_txe_dev_init(struct pci_dev *pdev)
 	struct mei_device *dev;
 	struct mei_txe_hw *hw;
 
-	dev = devm_kzalloc(&pdev->dev, sizeof(struct mei_device) +
-			   sizeof(struct mei_txe_hw), GFP_KERNEL);
+	dev = devm_kzalloc(&pdev->dev, sizeof(*dev) + sizeof(*hw), GFP_KERNEL);
 	if (!dev)
 		return NULL;
 
-	mei_device_init(dev, &pdev->dev, &mei_txe_hw_ops);
+	mei_device_init(dev, &pdev->dev, false, &mei_txe_hw_ops);
 
 	hw = to_txe_hw(dev);
 
 	init_waitqueue_head(&hw->wait_aliveness_resp);
 
 	return dev;
-}
-
-/**
- * mei_txe_setup_satt2 - SATT2 configuration for DMA support.
- *
- * @dev:   the device structure
- * @addr:  physical address start of the range
- * @range: physical range size
- *
- * Return: 0 on success an error code otherwise
- */
-int mei_txe_setup_satt2(struct mei_device *dev, phys_addr_t addr, u32 range)
-{
-	struct mei_txe_hw *hw = to_txe_hw(dev);
-
-	u32 lo32 = lower_32_bits(addr);
-	u32 hi32 = upper_32_bits(addr);
-	u32 ctrl;
-
-	/* SATT is limited to 36 Bits */
-	if (hi32 & ~0xF)
-		return -EINVAL;
-
-	/* SATT has to be 16Byte aligned */
-	if (lo32 & 0xF)
-		return -EINVAL;
-
-	/* SATT range has to be 4Bytes aligned */
-	if (range & 0x4)
-		return -EINVAL;
-
-	/* SATT is limited to 32 MB range*/
-	if (range > SATT_RANGE_MAX)
-		return -EINVAL;
-
-	ctrl = SATT2_CTRL_VALID_MSK;
-	ctrl |= hi32  << SATT2_CTRL_BR_BASE_ADDR_REG_SHIFT;
-
-	mei_txe_br_reg_write(hw, SATT2_SAP_SIZE_REG, range);
-	mei_txe_br_reg_write(hw, SATT2_BRG_BA_LSB_REG, lo32);
-	mei_txe_br_reg_write(hw, SATT2_CTRL_REG, ctrl);
-	dev_dbg(dev->dev, "SATT2: SAP_SIZE_OFFSET=0x%08X, BRG_BA_LSB_OFFSET=0x%08X, CTRL_OFFSET=0x%08X\n",
-		range, lo32, ctrl);
-
-	return 0;
 }

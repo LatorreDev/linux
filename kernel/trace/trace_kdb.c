@@ -43,7 +43,7 @@ static void ftrace_dump_buf(int skip_entries, long cpu_file)
 	if (cpu_file == RING_BUFFER_ALL_CPUS) {
 		for_each_tracing_cpu(cpu) {
 			iter.buffer_iter[cpu] =
-			ring_buffer_read_prepare(iter.trace_buffer->buffer,
+			ring_buffer_read_prepare(iter.array_buffer->buffer,
 						 cpu, GFP_ATOMIC);
 			ring_buffer_read_start(iter.buffer_iter[cpu]);
 			tracing_iter_reset(&iter, cpu);
@@ -51,7 +51,7 @@ static void ftrace_dump_buf(int skip_entries, long cpu_file)
 	} else {
 		iter.cpu_file = cpu_file;
 		iter.buffer_iter[cpu_file] =
-			ring_buffer_read_prepare(iter.trace_buffer->buffer,
+			ring_buffer_read_prepare(iter.array_buffer->buffer,
 						 cpu_file, GFP_ATOMIC);
 		ring_buffer_read_start(iter.buffer_iter[cpu_file]);
 		tracing_iter_reset(&iter, cpu_file);
@@ -96,22 +96,19 @@ static int kdb_ftdump(int argc, const char **argv)
 {
 	int skip_entries = 0;
 	long cpu_file;
-	char *cp;
+	int err;
 	int cnt;
 	int cpu;
 
 	if (argc > 2)
 		return KDB_ARGCOUNT;
 
-	if (argc) {
-		skip_entries = simple_strtol(argv[1], &cp, 0);
-		if (*cp)
-			skip_entries = 0;
-	}
+	if (argc && kstrtoint(argv[1], 0, &skip_entries))
+		return KDB_BADINT;
 
 	if (argc == 2) {
-		cpu_file = simple_strtol(argv[2], &cp, 0);
-		if (*cp || cpu_file >= NR_CPUS || cpu_file < 0 ||
+		err = kstrtol(argv[2], 0, &cpu_file);
+		if (err || cpu_file >= NR_CPUS || cpu_file < 0 ||
 		    !cpu_online(cpu_file))
 			return KDB_BADINT;
 	} else {
@@ -124,7 +121,7 @@ static int kdb_ftdump(int argc, const char **argv)
 	iter.buffer_iter = buffer_iter;
 
 	for_each_tracing_cpu(cpu) {
-		atomic_inc(&per_cpu_ptr(iter.trace_buffer->data, cpu)->disabled);
+		atomic_inc(&per_cpu_ptr(iter.array_buffer->data, cpu)->disabled);
 	}
 
 	/* A negative skip_entries means skip all but the last entries */
@@ -139,7 +136,7 @@ static int kdb_ftdump(int argc, const char **argv)
 	ftrace_dump_buf(skip_entries, cpu_file);
 
 	for_each_tracing_cpu(cpu) {
-		atomic_dec(&per_cpu_ptr(iter.trace_buffer->data, cpu)->disabled);
+		atomic_dec(&per_cpu_ptr(iter.array_buffer->data, cpu)->disabled);
 	}
 
 	kdb_trap_printk--;
@@ -147,11 +144,17 @@ static int kdb_ftdump(int argc, const char **argv)
 	return 0;
 }
 
+static kdbtab_t ftdump_cmd = {
+	.name = "ftdump",
+	.func = kdb_ftdump,
+	.usage = "[skip_#entries] [cpu]",
+	.help = "Dump ftrace log; -skip dumps last #entries",
+	.flags = KDB_ENABLE_ALWAYS_SAFE,
+};
+
 static __init int kdb_ftrace_register(void)
 {
-	kdb_register_flags("ftdump", kdb_ftdump, "[skip_#entries] [cpu]",
-			    "Dump ftrace log; -skip dumps last #entries", 0,
-			    KDB_ENABLE_ALWAYS_SAFE);
+	kdb_register(&ftdump_cmd);
 	return 0;
 }
 

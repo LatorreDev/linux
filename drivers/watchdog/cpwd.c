@@ -26,11 +26,12 @@
 #include <linux/interrupt.h>
 #include <linux/ioport.h>
 #include <linux/timer.h>
+#include <linux/compat.h>
 #include <linux/slab.h>
 #include <linux/mutex.h>
 #include <linux/io.h>
 #include <linux/of.h>
-#include <linux/of_device.h>
+#include <linux/platform_device.h>
 #include <linux/uaccess.h>
 
 #include <asm/irq.h>
@@ -171,7 +172,6 @@ MODULE_PARM_DESC(wd2_timeout, "Default watchdog2 timeout in 1/10secs");
 MODULE_AUTHOR("Eric Brower <ebrower@usa.net>");
 MODULE_DESCRIPTION("Hardware watchdog driver for Sun Microsystems CP1400/1500");
 MODULE_LICENSE("GPL");
-MODULE_SUPPORTED_DEVICE("watchdog");
 
 static void cpwd_writew(u16 val, void __iomem *addr)
 {
@@ -240,7 +240,7 @@ static void cpwd_brokentimer(struct timer_list *unused)
 	 * were called directly instead of by kernel timer
 	 */
 	if (timer_pending(&cpwd_timer))
-		del_timer(&cpwd_timer);
+		timer_delete(&cpwd_timer);
 
 	for (id = 0; id < WD_NUMDEVS; id++) {
 		if (p->devs[id].runstatus & WD_STAT_BSTOP) {
@@ -473,6 +473,11 @@ static long cpwd_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	return 0;
 }
 
+static long cpwd_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	return cpwd_ioctl(file, cmd, (unsigned long)compat_ptr(arg));
+}
+
 static ssize_t cpwd_write(struct file *file, const char __user *buf,
 			  size_t count, loff_t *ppos)
 {
@@ -497,12 +502,11 @@ static ssize_t cpwd_read(struct file *file, char __user *buffer,
 static const struct file_operations cpwd_fops = {
 	.owner =		THIS_MODULE,
 	.unlocked_ioctl =	cpwd_ioctl,
-	.compat_ioctl =		compat_ptr_ioctl,
+	.compat_ioctl =		cpwd_compat_ioctl,
 	.open =			cpwd_open,
 	.write =		cpwd_write,
 	.read =			cpwd_read,
 	.release =		cpwd_release,
-	.llseek =		no_llseek,
 };
 
 static int cpwd_probe(struct platform_device *op)
@@ -609,7 +613,7 @@ out_iounmap:
 	return err;
 }
 
-static int cpwd_remove(struct platform_device *op)
+static void cpwd_remove(struct platform_device *op)
 {
 	struct cpwd *p = platform_get_drvdata(op);
 	int i;
@@ -625,7 +629,7 @@ static int cpwd_remove(struct platform_device *op)
 	}
 
 	if (p->broken)
-		del_timer_sync(&cpwd_timer);
+		timer_delete_sync(&cpwd_timer);
 
 	if (p->initialized)
 		free_irq(p->irq, p);
@@ -633,8 +637,6 @@ static int cpwd_remove(struct platform_device *op)
 	of_iounmap(&op->resource[0], p->regs, 4 * WD_TIMER_REGSZ);
 
 	cpwd_device = NULL;
-
-	return 0;
 }
 
 static const struct of_device_id cpwd_match[] = {

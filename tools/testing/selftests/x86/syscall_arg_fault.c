@@ -15,43 +15,8 @@
 #include <setjmp.h>
 #include <errno.h>
 
-#ifdef __x86_64__
-# define WIDTH "q"
-#else
-# define WIDTH "l"
-#endif
+#include "helpers.h"
 
-/* Our sigaltstack scratch space. */
-static unsigned char altstack_data[SIGSTKSZ];
-
-static unsigned long get_eflags(void)
-{
-	unsigned long eflags;
-	asm volatile ("pushf" WIDTH "\n\tpop" WIDTH " %0" : "=rm" (eflags));
-	return eflags;
-}
-
-static void set_eflags(unsigned long eflags)
-{
-	asm volatile ("push" WIDTH " %0\n\tpopf" WIDTH
-		      : : "rm" (eflags) : "flags");
-}
-
-#define X86_EFLAGS_TF (1UL << 8)
-
-static void sethandler(int sig, void (*handler)(int, siginfo_t *, void *),
-		       int flags)
-{
-	struct sigaction sa;
-	memset(&sa, 0, sizeof(sa));
-	sa.sa_sigaction = handler;
-	sa.sa_flags = SA_SIGINFO | flags;
-	sigemptyset(&sa.sa_mask);
-	if (sigaction(sig, &sa, 0))
-		err(1, "sigaction");
-}
-
-static volatile sig_atomic_t sig_traps;
 static sigjmp_buf jmpbuf;
 
 static volatile sig_atomic_t n_errs;
@@ -72,6 +37,7 @@ static void sigsegv_or_sigbus(int sig, siginfo_t *info, void *ctx_void)
 	if (ax != -EFAULT && ax != -ENOSYS) {
 		printf("[FAIL]\tAX had the wrong value: 0x%lx\n",
 		       (unsigned long)ax);
+		printf("\tIP = 0x%lx\n", (unsigned long)ctx->uc_mcontext.gregs[REG_IP]);
 		n_errs++;
 	} else {
 		printf("[OK]\tSeems okay\n");
@@ -122,7 +88,8 @@ static void sigill(int sig, siginfo_t *info, void *ctx_void)
 int main()
 {
 	stack_t stack = {
-		.ss_sp = altstack_data,
+		/* Our sigaltstack scratch space. */
+		.ss_sp = malloc(sizeof(char) * SIGSTKSZ),
 		.ss_size = SIGSTKSZ,
 	};
 	if (sigaltstack(&stack, NULL) != 0)
@@ -226,5 +193,31 @@ int main()
 	}
 	set_eflags(get_eflags() & ~X86_EFLAGS_TF);
 
+#ifdef __x86_64__
+	printf("[RUN]\tSYSENTER with TF, invalid state, and GSBASE < 0\n");
+
+	if (sigsetjmp(jmpbuf, 1) == 0) {
+		sigtrap_consecutive_syscalls = 0;
+
+		asm volatile ("wrgsbase %%rax\n\t"
+			      :: "a" (0xffffffffffff0000UL));
+
+		set_eflags(get_eflags() | X86_EFLAGS_TF);
+		asm volatile (
+			"movl $-1, %%eax\n\t"
+			"movl $-1, %%ebx\n\t"
+			"movl $-1, %%ecx\n\t"
+			"movl $-1, %%edx\n\t"
+			"movl $-1, %%esi\n\t"
+			"movl $-1, %%edi\n\t"
+			"movl $-1, %%ebp\n\t"
+			"movl $-1, %%esp\n\t"
+			"sysenter"
+			: : : "memory", "flags");
+	}
+	set_eflags(get_eflags() & ~X86_EFLAGS_TF);
+#endif
+
+	free(stack.ss_sp);
 	return 0;
 }

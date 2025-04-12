@@ -158,7 +158,7 @@ struct gelic_eurus_scan_info {
 	__be32 reserved2;
 	__be32 reserved3;
 	__be32 reserved4;
-	u8 elements[0]; /* ie */
+	u8 elements[]; /* ie */
 } __packed;
 
 /* the hypervisor returns bbs up to 16 */
@@ -276,7 +276,6 @@ struct gelic_wl_info {
 	u8 active_bssid[ETH_ALEN]; /* associated bssid */
 	unsigned int essid_len;
 
-	struct iw_public_data wireless_data;
 	struct iw_statistics iwstat;
 };
 

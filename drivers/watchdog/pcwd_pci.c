@@ -542,7 +542,7 @@ static long pcipcwd_ioctl(struct file *file, unsigned int cmd,
 
 		pcipcwd_keepalive();
 	}
-		/* fall through */
+		fallthrough;
 
 	case WDIOC_GETTIMEOUT:
 		return put_user(heartbeat, p);
@@ -643,9 +643,9 @@ static int pcipcwd_notify_sys(struct notifier_block *this, unsigned long code,
 
 static const struct file_operations pcipcwd_fops = {
 	.owner =	THIS_MODULE,
-	.llseek =	no_llseek,
 	.write =	pcipcwd_write,
 	.unlocked_ioctl = pcipcwd_ioctl,
+	.compat_ioctl = compat_ptr_ioctl,
 	.open =		pcipcwd_open,
 	.release =	pcipcwd_release,
 };
@@ -658,7 +658,6 @@ static struct miscdevice pcipcwd_miscdev = {
 
 static const struct file_operations pcipcwd_temp_fops = {
 	.owner =	THIS_MODULE,
-	.llseek =	no_llseek,
 	.read =		pcipcwd_temp_read,
 	.open =		pcipcwd_temp_open,
 	.release =	pcipcwd_temp_release,

@@ -151,6 +151,9 @@ struct wl_fw_status {
 		 */
 		u8 *tx_lnk_free_pkts;
 
+		/* PN16 of last TKIP/AES seq-num per HLID */
+		__le16 *tx_lnk_sec_pn16;
+
 		/* Cumulative counter of released Voice memory blocks */
 		u8 tx_voice_released_blks;
 
@@ -212,6 +215,7 @@ struct wl1271_ap_key {
 	u8 hlid;
 	u32 tx_seq_32;
 	u16 tx_seq_16;
+	bool is_pairwise;
 };
 
 enum wl12xx_flags {
@@ -258,6 +262,7 @@ struct wl1271_link {
 	/* accounting for allocated / freed packets in FW */
 	u8 allocated_pkts;
 	u8 prev_freed_pkts;
+	u16 prev_sec_pn16;
 
 	u8 addr[ETH_ALEN];
 
@@ -323,6 +328,7 @@ struct wl12xx_rx_filter {
 
 struct wl1271_station {
 	u8 hlid;
+	bool fw_added;
 	bool in_connection;
 
 	/*
@@ -333,6 +339,11 @@ struct wl1271_station {
 	 */
 	u64 total_freed_pkts;
 };
+
+static inline struct wl1271_station *wl1271_station(struct ieee80211_sta *sta)
+{
+	return (struct wl1271_station *)sta->drv_priv;
+}
 
 struct wl12xx_vif {
 	struct wl1271 *wl;

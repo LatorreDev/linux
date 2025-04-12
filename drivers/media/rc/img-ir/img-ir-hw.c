@@ -556,8 +556,8 @@ static void img_ir_set_decoder(struct img_ir_priv *priv,
 	 * acquires the lock and we don't want to deadlock waiting for it.
 	 */
 	spin_unlock_irq(&priv->lock);
-	del_timer_sync(&hw->end_timer);
-	del_timer_sync(&hw->suspend_timer);
+	timer_delete_sync(&hw->end_timer);
+	timer_delete_sync(&hw->suspend_timer);
 	spin_lock_irq(&priv->lock);
 
 	hw->stopping = false;
@@ -617,7 +617,7 @@ unlock:
 }
 
 /**
- * img_ir_decoder_compatable() - Find whether a decoder will work with a device.
+ * img_ir_decoder_compatible() - Find whether a decoder will work with a device.
  * @priv:	IR private data.
  * @dec:	Decoder to check.
  *

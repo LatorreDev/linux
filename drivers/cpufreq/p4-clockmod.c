@@ -129,7 +129,7 @@ static unsigned int cpufreq_p4_get_frequency(struct cpuinfo_x86 *c)
 			return speedstep_get_frequency(SPEEDSTEP_CPU_PCORE);
 		case 0x0D: /* Pentium M (Dothan) */
 			p4clockmod_driver.flags |= CPUFREQ_CONST_LOOPS;
-			/* fall through */
+			fallthrough;
 		case 0x09: /* Pentium M (Banias) */
 			return speedstep_get_frequency(SPEEDSTEP_CPU_PM);
 		}
@@ -227,11 +227,10 @@ static struct cpufreq_driver p4clockmod_driver = {
 	.init		= cpufreq_p4_cpu_init,
 	.get		= cpufreq_p4_get,
 	.name		= "p4-clockmod",
-	.attr		= cpufreq_generic_attr,
 };
 
 static const struct x86_cpu_id cpufreq_p4_id[] = {
-	{ X86_VENDOR_INTEL, X86_FAMILY_ANY, X86_MODEL_ANY, X86_FEATURE_ACC },
+	X86_MATCH_VENDOR_FEATURE(INTEL, X86_FEATURE_ACC, NULL),
 	{}
 };
 

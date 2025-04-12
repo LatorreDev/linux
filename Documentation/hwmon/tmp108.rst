@@ -3,13 +3,21 @@ Kernel driver tmp108
 
 Supported chips:
 
+  * NXP P3T1085
+
+    Prefix: 'p3t1085'
+
+    Addresses scanned: none
+
+    Datasheet: https://www.nxp.com/docs/en/data-sheet/P3T1085UK.pdf
+
   * Texas Instruments TMP108
 
     Prefix: 'tmp108'
 
     Addresses scanned: none
 
-    Datasheet: http://www.ti.com/product/tmp108
+    Datasheet: https://www.ti.com/product/tmp108
 
 Author:
 

@@ -19,7 +19,7 @@
 #include <linux/mutex.h>
 #include <linux/sched.h>
 #include <linux/completion.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 struct rtsx_usb_ms {
 	struct platform_device	*pdev;
@@ -799,13 +799,13 @@ static int rtsx_usb_ms_drv_probe(struct platform_device *pdev)
 
 	return 0;
 err_out:
-	memstick_free_host(msh);
 	pm_runtime_disable(ms_dev(host));
 	pm_runtime_put_noidle(ms_dev(host));
+	memstick_free_host(msh);
 	return err;
 }
 
-static int rtsx_usb_ms_drv_remove(struct platform_device *pdev)
+static void rtsx_usb_ms_drv_remove(struct platform_device *pdev)
 {
 	struct rtsx_usb_ms *host = platform_get_drvdata(pdev);
 	struct memstick_host *msh = host->msh;
@@ -813,6 +813,7 @@ static int rtsx_usb_ms_drv_remove(struct platform_device *pdev)
 
 	host->eject = true;
 	cancel_work_sync(&host->handle_req);
+	cancel_delayed_work_sync(&host->poll_card);
 
 	mutex_lock(&host->host_mutex);
 	if (host->req) {
@@ -828,9 +829,6 @@ static int rtsx_usb_ms_drv_remove(struct platform_device *pdev)
 	}
 	mutex_unlock(&host->host_mutex);
 
-	memstick_remove_host(msh);
-	memstick_free_host(msh);
-
 	/* Balance possible unbalanced usage count
 	 * e.g. unconditional module removal
 	 */
@@ -838,12 +836,11 @@ static int rtsx_usb_ms_drv_remove(struct platform_device *pdev)
 		pm_runtime_put(ms_dev(host));
 
 	pm_runtime_disable(ms_dev(host));
-	platform_set_drvdata(pdev, NULL);
-
+	memstick_remove_host(msh);
 	dev_dbg(ms_dev(host),
 		": Realtek USB Memstick controller has been removed\n");
-
-	return 0;
+	memstick_free_host(msh);
+	platform_set_drvdata(pdev, NULL);
 }
 
 static struct platform_device_id rtsx_usb_ms_ids[] = {

@@ -15,6 +15,7 @@
 #include <linux/ioport.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
+#include <linux/string_choices.h>
 #include <linux/errno.h>
 #include <linux/timer.h>
 #include <linux/list.h>
@@ -24,9 +25,10 @@
 #include <linux/moduleparam.h>
 #include <linux/dma-mapping.h>
 #include <linux/io.h>
+#include <linux/iopoll.h>
 
 #include <asm/irq.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 #include <linux/irq.h>
 #include <linux/platform_device.h>
@@ -168,7 +170,7 @@ struct ehci_regs {
 #define FLAG_CF		(1<<0)		/* true: we'll support "high speed" */
 
 	/* PORTSC: offset 0x44 */
-	u32		port_status[0];	/* up to N_PORTS */
+	u32		port_status[];	/* up to N_PORTS */
 /* 31:23 reserved */
 #define PORT_WKOC_E	(1<<22)		/* wake on overcurrent (enable) */
 #define PORT_WKDISC_E	(1<<21)		/* wake on disconnect (enable) */
@@ -193,31 +195,6 @@ struct ehci_regs {
 #define PORT_CSC	(1<<1)		/* connect status change */
 #define PORT_CONNECT	(1<<0)		/* device connected */
 #define PORT_RWC_BITS   (PORT_CSC | PORT_PEC | PORT_OCC)
-} __packed;
-
-/* Appendix C, Debug port ... intended for use with special "debug devices"
- * that can help if there's no serial console.  (nonstandard enumeration.)
- */
-struct ehci_dbg_port {
-	u32	control;
-#define DBGP_OWNER	(1<<30)
-#define DBGP_ENABLED	(1<<28)
-#define DBGP_DONE	(1<<16)
-#define DBGP_INUSE	(1<<10)
-#define DBGP_ERRCODE(x)	(((x)>>7)&0x07)
-#	define DBGP_ERR_BAD	1
-#	define DBGP_ERR_SIGNAL	2
-#define DBGP_ERROR	(1<<6)
-#define DBGP_GO		(1<<5)
-#define DBGP_OUT	(1<<4)
-#define DBGP_LEN(x)	(((x)>>0)&0x0f)
-	u32	pids;
-#define DBGP_PID_GET(x)		(((x)>>16)&0xff)
-#define DBGP_PID_SET(data, tok)	(((data)<<8)|(tok))
-	u32	data03;
-	u32	data47;
-	u32	address;
-#define DBGP_EPADDR(dev, ep)	(((dev)<<8)|(ep))
 } __packed;
 
 #define	QTD_NEXT(dma)	cpu_to_le32((u32)dma)
@@ -676,12 +653,12 @@ static int oxu_hub_control(struct usb_hcd *hcd,
  */
 
 /* Low level read/write registers functions */
-static inline u32 oxu_readl(void *base, u32 reg)
+static inline u32 oxu_readl(void __iomem *base, u32 reg)
 {
 	return readl(base + reg);
 }
 
-static inline void oxu_writel(void *base, u32 reg, u32 val)
+static inline void oxu_writel(void __iomem *base, u32 reg, u32 val)
 {
 	writel(val, base + reg);
 }
@@ -748,18 +725,16 @@ static int handshake(struct oxu_hcd *oxu, void __iomem *ptr,
 					u32 mask, u32 done, int usec)
 {
 	u32 result;
+	int ret;
 
-	do {
-		result = readl(ptr);
-		if (result == ~(u32)0)		/* card removed */
-			return -ENODEV;
-		result &= mask;
-		if (result == done)
-			return 0;
-		udelay(1);
-		usec--;
-	} while (usec > 0);
-	return -ETIMEDOUT;
+	ret = readl_poll_timeout_atomic(ptr, result,
+					((result & mask) == done ||
+					 result == U32_MAX),
+					1, usec);
+	if (result == U32_MAX)		/* card removed */
+		return -ENODEV;
+
+	return ret;
 }
 
 /* Force HC to halt state from unknown (EHCI spec section 2.3) */
@@ -911,7 +886,7 @@ static int oxu_buf_alloc(struct oxu_hcd *oxu, struct ehci_qtd *qtd, int len)
 	int a_blocks;	/* blocks allocated */
 	int i, j;
 
-	/* Don't allocte bigger than supported */
+	/* Don't allocate bigger than supported */
 	if (len > BUFFER_SIZE * BUFFER_NUM) {
 		oxu_err(oxu, "buffer too big (%d)\n", len);
 		return -ENOMEM;
@@ -928,7 +903,7 @@ static int oxu_buf_alloc(struct oxu_hcd *oxu, struct ehci_qtd *qtd, int len)
 
 	/* Find a suitable available data buffer */
 	for (i = 0; i < BUFFER_NUM;
-			i += max(a_blocks, (int)oxu->db_used[i])) {
+			i += max_t(int, a_blocks, oxu->db_used[i])) {
 
 		/* Check all the required blocks are available */
 		for (j = 0; j < a_blocks; j++)
@@ -1152,7 +1127,7 @@ static void ehci_mem_cleanup(struct oxu_hcd *oxu)
 		qh_put(oxu->async);
 	oxu->async = NULL;
 
-	del_timer(&oxu->urb_timer);
+	timer_delete(&oxu->urb_timer);
 
 	oxu->periodic = NULL;
 
@@ -1366,6 +1341,7 @@ __acquires(oxu->lock)
 	switch (urb->status) {
 	case -EINPROGRESS:		/* success */
 		urb->status = 0;
+		break;
 	default:			/* fault */
 		break;
 	case -EREMOTEIO:		/* fault or normal */
@@ -1685,7 +1661,7 @@ static struct list_head *qh_urb_transaction(struct oxu_hcd *oxu,
 		token |= (1 /* "in" */ << 8);
 	/* else it's already initted to "out" pid (0 << 8) */
 
-	maxpacket = max_packet(usb_maxpacket(urb->dev, urb->pipe, !is_input));
+	maxpacket = usb_maxpacket(urb->dev, urb->pipe);
 
 	/*
 	 * buffer gets wrapped in one or more qtds;
@@ -1796,7 +1772,7 @@ static struct ehci_qh *qh_make(struct oxu_hcd *oxu,
 
 	is_input = usb_pipein(urb->pipe);
 	type = usb_pipetype(urb->pipe);
-	maxp = usb_maxpacket(urb->dev, urb->pipe, !is_input);
+	maxp = usb_maxpacket(urb->dev, urb->pipe);
 
 	/* Compute interrupt scheduling parameters just once, and save.
 	 * - allowing for high bandwidth, how many nsec/uframe are used?
@@ -1858,7 +1834,7 @@ static struct ehci_qh *qh_make(struct oxu_hcd *oxu,
 	switch (urb->dev->speed) {
 	case USB_SPEED_LOW:
 		info1 |= (1 << 12);	/* EPS "low" */
-		/* FALL THROUGH */
+		fallthrough;
 
 	case USB_SPEED_FULL:
 		/* EPS 0 means "full" */
@@ -2037,16 +2013,15 @@ static struct ehci_qh *qh_append_tds(struct oxu_hcd *oxu,
 static int submit_async(struct oxu_hcd	*oxu, struct urb *urb,
 			struct list_head *qtd_list, gfp_t mem_flags)
 {
-	struct ehci_qtd	*qtd;
-	int epnum;
+	int epnum = urb->ep->desc.bEndpointAddress;
 	unsigned long flags;
 	struct ehci_qh *qh = NULL;
 	int rc = 0;
+#ifdef OXU_URB_TRACE
+	struct ehci_qtd	*qtd;
 
 	qtd = list_entry(qtd_list->next, struct ehci_qtd, qtd_list);
-	epnum = urb->ep->desc.bEndpointAddress;
 
-#ifdef OXU_URB_TRACE
 	oxu_dbg(oxu, "%s %s urb %p ep%d%s len %d, qtd %p [qh %p]\n",
 		__func__, urb->dev->devpath, urb,
 		epnum & 0x0f, (epnum & USB_DIR_IN) ? "in" : "out",
@@ -2782,12 +2757,16 @@ static void ehci_port_power(struct oxu_hcd *oxu, int is_on)
 	if (!HCS_PPC(oxu->hcs_params))
 		return;
 
-	oxu_dbg(oxu, "...power%s ports...\n", is_on ? "up" : "down");
-	for (port = HCS_N_PORTS(oxu->hcs_params); port > 0; )
-		(void) oxu_hub_control(oxu_to_hcd(oxu),
-				is_on ? SetPortFeature : ClearPortFeature,
-				USB_PORT_FEAT_POWER,
-				port--, NULL, 0);
+	oxu_dbg(oxu, "...power%s ports...\n", str_up_down(is_on));
+	for (port = HCS_N_PORTS(oxu->hcs_params); port > 0; ) {
+		if (is_on)
+			oxu_hub_control(oxu_to_hcd(oxu), SetPortFeature,
+				USB_PORT_FEAT_POWER, port--, NULL, 0);
+		else
+			oxu_hub_control(oxu_to_hcd(oxu), ClearPortFeature,
+				USB_PORT_FEAT_POWER, port--, NULL, 0);
+	}
+
 	msleep(20);
 }
 
@@ -3062,7 +3041,7 @@ static int oxu_hcd_init(struct usb_hcd *hcd)
 		 * make problems:  throughput reduction (!), data errors...
 		 */
 		if (park) {
-			park = min(park, (unsigned) 3);
+			park = min_t(unsigned int, park, 3);
 			temp |= CMD_PARK;
 			temp |= park << 8;
 		}
@@ -3128,7 +3107,7 @@ static int oxu_run(struct usb_hcd *hcd)
 	/* hcc_params controls whether oxu->regs->segment must (!!!)
 	 * be used; it constrains QH/ITD/SITD and QTD locations.
 	 * dma_pool consistent memory always uses segment zero.
-	 * streaming mappings for I/O buffers, like pci_map_single(),
+	 * streaming mappings for I/O buffers, like dma_map_single(),
 	 * can return segments above 4GB, if the device allows.
 	 *
 	 * NOTE:  the dma mask is visible through dev->dma_mask, so
@@ -3175,7 +3154,7 @@ static void oxu_stop(struct usb_hcd *hcd)
 	ehci_port_power(oxu, 0);
 
 	/* no more interrupts ... */
-	del_timer_sync(&oxu->watchdog);
+	timer_delete_sync(&oxu->watchdog);
 
 	spin_lock_irq(&oxu->lock);
 	if (HC_IS_RUNNING(hcd->state))
@@ -3374,7 +3353,7 @@ static int oxu_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
 		switch (qh->qh_state) {
 		case QH_STATE_LINKED:
 			intr_deschedule(oxu, qh);
-			/* FALL THROUGH */
+			fallthrough;
 		case QH_STATE_IDLE:
 			qh_completions(oxu, qh);
 			break;
@@ -3446,7 +3425,7 @@ rescan:
 		if (!tmp)
 			goto nogood;
 		unlink_async(oxu, qh);
-		/* FALL THROUGH */
+		fallthrough;
 	case QH_STATE_UNLINK:		/* wait for hw to finish? */
 idle_timeout:
 		spin_unlock_irqrestore(&oxu->lock, flags);
@@ -3457,7 +3436,7 @@ idle_timeout:
 			qh_put(qh);
 			break;
 		}
-		/* fall through */
+		fallthrough;
 	default:
 nogood:
 		/* caller was supposed to have unlinked any requests;
@@ -3906,8 +3885,10 @@ static int oxu_bus_suspend(struct usb_hcd *hcd)
 		}
 	}
 
+	spin_unlock_irq(&oxu->lock);
 	/* turn off now-idle HC */
-	del_timer_sync(&oxu->watchdog);
+	timer_delete_sync(&oxu->watchdog);
+	spin_lock_irq(&oxu->lock);
 	ehci_halt(oxu);
 	hcd->state = HC_STATE_SUSPENDED;
 
@@ -4063,7 +4044,7 @@ static const struct hc_driver oxu_hc_driver = {
  * Module stuff
  */
 
-static void oxu_configuration(struct platform_device *pdev, void *base)
+static void oxu_configuration(struct platform_device *pdev, void __iomem *base)
 {
 	u32 tmp;
 
@@ -4093,7 +4074,7 @@ static void oxu_configuration(struct platform_device *pdev, void *base)
 	oxu_writel(base, OXU_CHIPIRQEN_SET, OXU_USBSPHLPWUI | OXU_USBOTGLPWUI);
 }
 
-static int oxu_verify_id(struct platform_device *pdev, void *base)
+static int oxu_verify_id(struct platform_device *pdev, void __iomem *base)
 {
 	u32 id;
 	static const char * const bo[] = {
@@ -4121,7 +4102,7 @@ static int oxu_verify_id(struct platform_device *pdev, void *base)
 static const struct hc_driver oxu_hc_driver;
 static struct usb_hcd *oxu_create(struct platform_device *pdev,
 				unsigned long memstart, unsigned long memlen,
-				void *base, int irq, int otg)
+				void __iomem *base, int irq, int otg)
 {
 	struct device *dev = &pdev->dev;
 
@@ -4149,8 +4130,10 @@ static struct usb_hcd *oxu_create(struct platform_device *pdev,
 	oxu->is_otg = otg;
 
 	ret = usb_add_hcd(hcd, irq, IRQF_SHARED);
-	if (ret < 0)
+	if (ret < 0) {
+		usb_put_hcd(hcd);
 		return ERR_PTR(ret);
+	}
 
 	device_wakeup_enable(hcd->self.controller);
 	return hcd;
@@ -4158,7 +4141,7 @@ static struct usb_hcd *oxu_create(struct platform_device *pdev,
 
 static int oxu_init(struct platform_device *pdev,
 				unsigned long memstart, unsigned long memlen,
-				void *base, int irq)
+				void __iomem *base, int irq)
 {
 	struct oxu_info *info = platform_get_drvdata(pdev);
 	struct usb_hcd *hcd;
@@ -4207,7 +4190,7 @@ error_create_otg:
 static int oxu_drv_probe(struct platform_device *pdev)
 {
 	struct resource *res;
-	void *base;
+	void __iomem *base;
 	unsigned long memstart, memlen;
 	int irq, ret;
 	struct oxu_info *info;
@@ -4218,17 +4201,12 @@ static int oxu_drv_probe(struct platform_device *pdev)
 	/*
 	 * Get the platform resources
 	 */
-	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
-	if (!res) {
-		dev_err(&pdev->dev,
-			"no IRQ! Check %s setup!\n", dev_name(&pdev->dev));
-		return -ENODEV;
-	}
-	irq = res->start;
+	irq = platform_get_irq(pdev, 0);
+	if (irq < 0)
+		return irq;
 	dev_dbg(&pdev->dev, "IRQ resource %d\n", irq);
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	base = devm_ioremap_resource(&pdev->dev, res);
+	base = devm_platform_get_and_ioremap_resource(pdev, 0, &res);
 	if (IS_ERR(base)) {
 		ret = PTR_ERR(base);
 		goto error;
@@ -4275,14 +4253,12 @@ static void oxu_remove(struct platform_device *pdev, struct usb_hcd *hcd)
 	usb_put_hcd(hcd);
 }
 
-static int oxu_drv_remove(struct platform_device *pdev)
+static void oxu_drv_remove(struct platform_device *pdev)
 {
 	struct oxu_info *info = platform_get_drvdata(pdev);
 
 	oxu_remove(pdev, info->hcd[0]);
 	oxu_remove(pdev, info->hcd[1]);
-
-	return 0;
 }
 
 static void oxu_drv_shutdown(struct platform_device *pdev)

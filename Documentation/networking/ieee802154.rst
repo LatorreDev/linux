@@ -26,12 +26,14 @@ The stack is composed of three main parts:
 Socket API
 ==========
 
-.. c:function:: int sd = socket(PF_IEEE802154, SOCK_DGRAM, 0);
+::
+
+    int sd = socket(PF_IEEE802154, SOCK_DGRAM, 0);
 
 The address family, socket addresses etc. are defined in the
 include/net/af_ieee802154.h header or in the special header
-in the userspace package (see either http://wpan.cakelab.org/ or the
-git tree at https://github.com/linux-wpan/wpan-tools).
+in the userspace package (see either https://linux-wpan.org/wpan-tools.html
+or the git tree at https://github.com/linux-wpan/wpan-tools).
 
 6LoWPAN Linux implementation
 ============================
@@ -68,9 +70,10 @@ Like with WiFi, there are several types of devices implementing IEEE 802.15.4.
 exports a management (e.g. MLME) and data API.
 2) 'SoftMAC' or just radio. These types of devices are just radio transceivers
 possibly with some kinds of acceleration like automatic CRC computation and
-comparation, automagic ACK handling, address matching, etc.
+comparison, automagic ACK handling, address matching, etc.
 
-Those types of devices require different approach to be hooked into Linux kernel.
+Each type of device requires a different approach to be hooked into the Linux
+kernel.
 
 HardMAC
 -------
@@ -79,10 +82,10 @@ See the header include/net/ieee802154_netdev.h. You have to implement Linux
 net_device, with .type = ARPHRD_IEEE802154. Data is exchanged with socket family
 code via plain sk_buffs. On skb reception skb->cb must contain additional
 info as described in the struct ieee802154_mac_cb. During packet transmission
-the skb->cb is used to provide additional data to device's header_ops->create
-function. Be aware that this data can be overridden later (when socket code
-submits skb to qdisc), so if you need something from that cb later, you should
-store info in the skb->data on your own.
+the skb->cb is used to provide additional data to the device's
+header_ops->create function. Be aware that this data can be overridden later
+(when socket code submits skb to qdisc), so if you need something from that cb
+later, you should store info in the skb->data on your own.
 
 To hook the MLME interface you have to populate the ml_priv field of your
 net_device with a pointer to struct ieee802154_mlme_ops instance. The fields
@@ -92,8 +95,9 @@ All other fields are required.
 SoftMAC
 -------
 
-The MAC is the middle layer in the IEEE 802.15.4 Linux stack. This moment it
-provides interface for drivers registration and management of slave interfaces.
+The MAC is the middle layer in the IEEE 802.15.4 Linux stack. At the moment, it
+provides an interface for driver registration and management of slave
+interfaces.
 
 NOTE: Currently the only monitor device type is supported - it's IEEE 802.15.4
 stack interface for network sniffers (e.g. WireShark).
@@ -131,12 +135,12 @@ Register PHY in the system.
 
 Freeing registered PHY.
 
-.. c:function:: void ieee802154_rx_irqsafe(struct ieee802154_hw *hw, struct sk_buff *skb, u8 lqi):
+.. c:function:: void ieee802154_rx_irqsafe(struct ieee802154_hw *hw, struct sk_buff *skb, u8 lqi)
 
 Telling 802.15.4 module there is a new received frame in the skb with
 the RF Link Quality Indicator (LQI) from the hardware device.
 
-.. c:function:: void ieee802154_xmit_complete(struct ieee802154_hw *hw, struct sk_buff *skb, bool ifs_handling):
+.. c:function:: void ieee802154_xmit_complete(struct ieee802154_hw *hw, struct sk_buff *skb, bool ifs_handling)
 
 Telling 802.15.4 module the frame in the skb is or going to be
 transmitted through the hardware device
@@ -155,25 +159,25 @@ operations structure at least::
         ...
    };
 
-.. c:function:: int start(struct ieee802154_hw *hw):
+.. c:function:: int start(struct ieee802154_hw *hw)
 
 Handler that 802.15.4 module calls for the hardware device initialization.
 
-.. c:function:: void stop(struct ieee802154_hw *hw):
+.. c:function:: void stop(struct ieee802154_hw *hw)
 
 Handler that 802.15.4 module calls for the hardware device cleanup.
 
-.. c:function:: int xmit_async(struct ieee802154_hw *hw, struct sk_buff *skb):
+.. c:function:: int xmit_async(struct ieee802154_hw *hw, struct sk_buff *skb)
 
 Handler that 802.15.4 module calls for each frame in the skb going to be
 transmitted through the hardware device.
 
-.. c:function:: int ed(struct ieee802154_hw *hw, u8 *level):
+.. c:function:: int ed(struct ieee802154_hw *hw, u8 *level)
 
 Handler that 802.15.4 module calls for Energy Detection from the hardware
 device.
 
-.. c:function:: int set_channel(struct ieee802154_hw *hw, u8 page, u8 channel):
+.. c:function:: int set_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
 
 Set radio for listening on specific channel of the hardware device.
 

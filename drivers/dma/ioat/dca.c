@@ -10,6 +10,8 @@
 #include <linux/interrupt.h>
 #include <linux/dca.h>
 
+#include <asm/cpuid.h>
+
 /* either a kernel change is needed, or we need something like this in kernel */
 #ifndef CONFIG_SMP
 #include <asm/smp.h>
@@ -40,16 +42,6 @@
 #define DCA2_TAG_MAP_BYTE3 0x82
 #define DCA2_TAG_MAP_BYTE4 0x82
 
-/* verify if tag map matches expected values */
-static inline int dca2_tag_map_valid(u8 *tag_map)
-{
-	return ((tag_map[0] == DCA2_TAG_MAP_BYTE0) &&
-		(tag_map[1] == DCA2_TAG_MAP_BYTE1) &&
-		(tag_map[2] == DCA2_TAG_MAP_BYTE2) &&
-		(tag_map[3] == DCA2_TAG_MAP_BYTE3) &&
-		(tag_map[4] == DCA2_TAG_MAP_BYTE4));
-}
-
 /*
  * "Legacy" DCA systems do not implement the DCA register set in the
  * I/OAT device.  Software needs direct support for their tag mappings.
@@ -61,18 +53,18 @@ static inline int dca2_tag_map_valid(u8 *tag_map)
 /* pack PCI B/D/F into a u16 */
 static inline u16 dcaid_from_pcidev(struct pci_dev *pci)
 {
-	return (pci->bus->number << 8) | pci->devfn;
+	return pci_dev_id(pci);
 }
 
 static int dca_enabled_in_bios(struct pci_dev *pdev)
 {
 	/* CPUID level 9 returns DCA configuration */
 	/* Bit 0 indicates DCA enabled by the BIOS */
-	unsigned long cpuid_level_9;
+	u32 eax;
 	int res;
 
-	cpuid_level_9 = cpuid_eax(9);
-	res = test_bit(0, &cpuid_level_9);
+	eax = cpuid_eax(CPUID_LEAF_DCA);
+	res = eax & BIT(0);
 	if (!res)
 		dev_dbg(&pdev->dev, "DCA is disabled in BIOS\n");
 
@@ -102,7 +94,7 @@ struct ioat_dca_priv {
 	int			 max_requesters;
 	int			 requester_count;
 	u8			 tag_map[IOAT_TAG_MAP_LEN];
-	struct ioat_dca_slot 	 req_slots[0];
+	struct ioat_dca_slot	 req_slots[];
 };
 
 static int ioat_dca_dev_managed(struct dca_provider *dca,

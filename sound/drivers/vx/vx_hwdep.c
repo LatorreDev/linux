@@ -32,7 +32,7 @@ MODULE_FIRMWARE("vx/l_1_vp4.d56");
 
 int snd_vx_setup_firmware(struct vx_core *chip)
 {
-	static char *fw_files[VX_TYPE_NUMS][4] = {
+	static const char * const fw_files[VX_TYPE_NUMS][4] = {
 		[VX_TYPE_BOARD] = {
 			NULL, "x1_1_vx2.xlx", "bd56002.boot", "l_1_vx2.d56",
 		},
@@ -58,8 +58,8 @@ int snd_vx_setup_firmware(struct vx_core *chip)
 		if (! fw_files[chip->type][i])
 			continue;
 		sprintf(path, "vx/%s", fw_files[chip->type][i]);
-		if (request_firmware(&fw, path, chip->dev)) {
-			snd_printk(KERN_ERR "vx: can't load firmware %s\n", path);
+		if (request_firmware(&fw, path, chip->card->dev)) {
+			dev_err(chip->card->dev, "vx: can't load firmware %s\n", path);
 			return -ENOENT;
 		}
 		err = chip->ops->load_dsp(chip, i, fw);
@@ -78,15 +78,19 @@ int snd_vx_setup_firmware(struct vx_core *chip)
 
 	/* ok, we reached to the last one */
 	/* create the devices if not built yet */
-	if ((err = snd_vx_pcm_new(chip)) < 0)
+	err = snd_vx_pcm_new(chip);
+	if (err < 0)
 		return err;
 
-	if ((err = snd_vx_mixer_new(chip)) < 0)
+	err = snd_vx_mixer_new(chip);
+	if (err < 0)
 		return err;
 
-	if (chip->ops->add_controls)
-		if ((err = chip->ops->add_controls(chip)) < 0)
+	if (chip->ops->add_controls) {
+		err = chip->ops->add_controls(chip);
+		if (err < 0)
 			return err;
+	}
 
 	chip->chip_status |= VX_STAT_DEVICE_INIT;
 	chip->chip_status |= VX_STAT_CHIP_INIT;

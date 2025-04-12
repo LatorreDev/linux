@@ -62,7 +62,7 @@ unsigned int snd_gf1_calc_ramp_rate(struct snd_gus_card * gus,
 				    unsigned short end,
 				    unsigned int us)
 {
-	static unsigned char vol_rates[19] =
+	static const unsigned char vol_rates[19] =
 	{
 		23, 24, 26, 28, 29, 31, 32, 34,
 		36, 37, 39, 40, 42, 44, 45, 47,
@@ -104,7 +104,8 @@ unsigned short snd_gf1_translate_freq(struct snd_gus_card * gus, unsigned int fr
 		freq16 = 50;
 	if (freq16 & 0xf8000000) {
 		freq16 = ~0xf8000000;
-		snd_printk(KERN_ERR "snd_gf1_translate_freq: overflow - freq = 0x%x\n", freq16);
+		dev_err(gus->card->dev, "%s: overflow - freq = 0x%x\n",
+			__func__, freq16);
 	}
 	return ((freq16 << 9) + (gus->gf1.playback_freq >> 1)) / gus->gf1.playback_freq;
 }
@@ -113,7 +114,7 @@ unsigned short snd_gf1_translate_freq(struct snd_gus_card * gus, unsigned int fr
 
 short snd_gf1_compute_vibrato(short cents, unsigned short fc_register)
 {
-	static short vibrato_table[] =
+	static const short vibrato_table[] =
 	{
 		0, 0, 32, 592, 61, 1175, 93, 1808,
 		124, 2433, 152, 3007, 182, 3632, 213, 4290,
@@ -121,7 +122,8 @@ short snd_gf1_compute_vibrato(short cents, unsigned short fc_register)
 	};
 
 	long depth;
-	short *vi1, *vi2, pcents, v1;
+	const short *vi1, *vi2;
+	short pcents, v1;
 
 	pcents = cents < 0 ? -cents : cents;
 	for (vi1 = vibrato_table, vi2 = vi1 + 2; pcents > *vi2; vi1 = vi2, vi2 += 2);
@@ -145,7 +147,7 @@ short snd_gf1_compute_vibrato(short cents, unsigned short fc_register)
 
 unsigned short snd_gf1_compute_pitchbend(unsigned short pitchbend, unsigned short sens)
 {
-	static long log_table[] = {1024, 1085, 1149, 1218, 1290, 1367, 1448, 1534, 1625, 1722, 1825, 1933};
+	static const long log_table[] = {1024, 1085, 1149, 1218, 1290, 1367, 1448, 1534, 1625, 1722, 1825, 1933};
 	int wheel, sensitivity;
 	unsigned int mantissa, f1, f2;
 	unsigned short semitones, f1_index, f2_index, f1_power, f2_power;
@@ -188,14 +190,14 @@ unsigned short snd_gf1_compute_freq(unsigned int freq,
 	fc = (freq << 10) / rate;
 	if (fc > 97391L) {
 		fc = 97391;
-		snd_printk(KERN_ERR "patch: (1) fc frequency overflow - %u\n", fc);
+		pr_err("patch: (1) fc frequency overflow - %u\n", fc);
 	}
 	fc = (fc * 44100UL) / mix_rate;
 	while (scale--)
 		fc <<= 1;
 	if (fc > 65535L) {
 		fc = 65535;
-		snd_printk(KERN_ERR "patch: (2) fc frequency overflow - %u\n", fc);
+		pr_err("patch: (2) fc frequency overflow - %u\n", fc);
 	}
 	return (unsigned short) fc;
 }

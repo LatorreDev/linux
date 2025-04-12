@@ -1,7 +1,6 @@
 .. SPDX-License-Identifier: GPL-2.0
 .. include:: <isonum.txt>
 
-.. |struct cpufreq_policy| replace:: :c:type:`struct cpufreq_policy <cpufreq_policy>`
 .. |intel_pstate| replace:: :doc:`intel_pstate <intel_pstate>`
 
 =======================
@@ -92,16 +91,16 @@ control the P-state of multiple CPUs at the same time and writing to it affects
 all of those CPUs simultaneously.
 
 Sets of CPUs sharing hardware P-state control interfaces are represented by
-``CPUFreq`` as |struct cpufreq_policy| objects.  For consistency,
-|struct cpufreq_policy| is also used when there is only one CPU in the given
+``CPUFreq`` as struct cpufreq_policy objects.  For consistency,
+struct cpufreq_policy is also used when there is only one CPU in the given
 set.
 
-The ``CPUFreq`` core maintains a pointer to a |struct cpufreq_policy| object for
+The ``CPUFreq`` core maintains a pointer to a struct cpufreq_policy object for
 every CPU in the system, including CPUs that are currently offline.  If multiple
 CPUs share the same hardware P-state control interface, all of the pointers
-corresponding to them point to the same |struct cpufreq_policy| object.
+corresponding to them point to the same struct cpufreq_policy object.
 
-``CPUFreq`` uses |struct cpufreq_policy| as its basic data type and the design
+``CPUFreq`` uses struct cpufreq_policy as its basic data type and the design
 of its user space interface is based on the policy concept.
 
 
@@ -147,9 +146,9 @@ CPUs in it.
 
 The next major initialization step for a new policy object is to attach a
 scaling governor to it (to begin with, that is the default scaling governor
-determined by the kernel configuration, but it may be changed later
-via ``sysfs``).  First, a pointer to the new policy object is passed to the
-governor's ``->init()`` callback which is expected to initialize all of the
+determined by the kernel command line or configuration, but it may be changed
+later via ``sysfs``).  First, a pointer to the new policy object is passed to
+the governor's ``->init()`` callback which is expected to initialize all of the
 data structures necessary to handle the given policy and, possibly, to add
 a governor ``sysfs`` interface to it.  Next, the governor is started by
 invoking its ``->start()`` callback.
@@ -249,6 +248,20 @@ are the following:
 	If that frequency cannot be determined, this attribute should not
 	be present.
 
+``cpuinfo_avg_freq``
+        An average frequency (in KHz) of all CPUs belonging to a given policy,
+        derived from a hardware provided feedback and reported on a time frame
+        spanning at most few milliseconds.
+
+        This is expected to be based on the frequency the hardware actually runs
+        at and, as such, might require specialised hardware support (such as AMU
+        extension on ARM). If one cannot be determined, this attribute should
+        not be present.
+
+        Note, that failed attempt to retrieve current frequency for a given
+        CPU(s) will result in an appropriate error, i.e: EAGAIN for CPU that
+        remains idle (raised on ARM).
+
 ``cpuinfo_max_freq``
 	Maximum possible operating frequency the CPUs belonging to this policy
 	can run at (in kHz).
@@ -267,6 +280,10 @@ are the following:
 
 ``related_cpus``
 	List of all (online and offline) CPUs belonging to this policy.
+
+``scaling_available_frequencies``
+	List of available frequencies of the CPUs belonging to this policy
+	(in kHz).
 
 ``scaling_available_governors``
 	List of ``CPUFreq`` scaling governors present in the kernel that can
@@ -290,7 +307,8 @@ are the following:
 	Some architectures (e.g. ``x86``) may attempt to provide information
 	more precisely reflecting the current CPU frequency through this
 	attribute, but that still may not be the exact current CPU frequency as
-	seen by the hardware at the moment.
+	seen by the hardware at the moment. This behavior though, is only
+	available via c:macro:``CPUFREQ_ARCH_CUR_FREQ`` option.
 
 ``scaling_driver``
 	The scaling driver currently in use.
@@ -422,8 +440,8 @@ This governor exposes only one tunable:
 
 ``rate_limit_us``
 	Minimum time (in microseconds) that has to pass between two consecutive
-	runs of governor computations (default: 1000 times the scaling driver's
-	transition latency).
+	runs of governor computations (default: 1.5 times the scaling driver's
+	transition latency or the maximum 2ms).
 
 	The purpose of this tunable is to reduce the scheduler context overhead
 	of the governor which might be excessive without it.
@@ -471,17 +489,17 @@ This governor exposes the following tunables:
 	This is how often the governor's worker routine should run, in
 	microseconds.
 
-	Typically, it is set to values of the order of 10000 (10 ms).  Its
-	default value is equal to the value of ``cpuinfo_transition_latency``
-	for each policy this governor is attached to (but since the unit here
-	is greater by 1000, this means that the time represented by
-	``sampling_rate`` is 1000 times greater than the transition latency by
-	default).
+	Typically, it is set to values of the order of 2000 (2 ms).  Its
+	default value is to add a 50% breathing room
+	to ``cpuinfo_transition_latency`` on each policy this governor is
+	attached to. The minimum is typically the length of two scheduler
+	ticks.
 
 	If this tunable is per-policy, the following shell command sets the time
-	represented by it to be 750 times as high as the transition latency::
+	represented by it to be 1.5 times as high as the transition latency
+	(the default)::
 
-	# echo `$(($(cat cpuinfo_transition_latency) * 750 / 1000)) > ondemand/sampling_rate
+	# echo `$(($(cat cpuinfo_transition_latency) * 3 / 2)) > ondemand/sampling_rate
 
 ``up_threshold``
 	If the estimated CPU load is above this value (in percent), the governor

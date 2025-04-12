@@ -1532,6 +1532,12 @@
 //DAGB0_WRCLI_DBUS_GO_PENDING
 #define DAGB0_WRCLI_DBUS_GO_PENDING__BUSY__SHIFT                                                              0x0
 #define DAGB0_WRCLI_DBUS_GO_PENDING__BUSY_MASK                                                                0xFFFFFFFFL
+//DAGB0_WRCLI_GPU_SNOOP_OVERRIDE
+#define DAGB0_WRCLI_GPU_SNOOP_OVERRIDE__ENABLE__SHIFT                                                         0x0
+#define DAGB0_WRCLI_GPU_SNOOP_OVERRIDE__ENABLE_MASK                                                           0xFFFFFFFFL
+//DAGB0_WRCLI_GPU_SNOOP_OVERRIDE_VALUE
+#define DAGB0_WRCLI_GPU_SNOOP_OVERRIDE_VALUE__ENABLE__SHIFT                                                   0x0
+#define DAGB0_WRCLI_GPU_SNOOP_OVERRIDE_VALUE__ENABLE_MASK                                                     0xFFFFFFFFL
 //DAGB0_DAGB_DLY
 #define DAGB0_DAGB_DLY__DLY__SHIFT                                                                            0x0
 #define DAGB0_DAGB_DLY__CLI__SHIFT                                                                            0x8
@@ -3207,6 +3213,12 @@
 //DAGB1_WRCLI_DBUS_GO_PENDING
 #define DAGB1_WRCLI_DBUS_GO_PENDING__BUSY__SHIFT                                                              0x0
 #define DAGB1_WRCLI_DBUS_GO_PENDING__BUSY_MASK                                                                0xFFFFFFFFL
+//DAGB1_WRCLI_GPU_SNOOP_OVERRIDE
+#define DAGB1_WRCLI_GPU_SNOOP_OVERRIDE__ENABLE__SHIFT                                                         0x0
+#define DAGB1_WRCLI_GPU_SNOOP_OVERRIDE__ENABLE_MASK                                                           0xFFFFFFFFL
+//DAGB1_WRCLI_GPU_SNOOP_OVERRIDE_VALUE
+#define DAGB1_WRCLI_GPU_SNOOP_OVERRIDE_VALUE__ENABLE__SHIFT                                                   0x0
+#define DAGB1_WRCLI_GPU_SNOOP_OVERRIDE_VALUE__ENABLE_MASK                                                     0xFFFFFFFFL
 //DAGB1_DAGB_DLY
 #define DAGB1_DAGB_DLY__DLY__SHIFT                                                                            0x0
 #define DAGB1_DAGB_DLY__CLI__SHIFT                                                                            0x8
@@ -4882,6 +4894,12 @@
 //DAGB2_WRCLI_DBUS_GO_PENDING
 #define DAGB2_WRCLI_DBUS_GO_PENDING__BUSY__SHIFT                                                              0x0
 #define DAGB2_WRCLI_DBUS_GO_PENDING__BUSY_MASK                                                                0xFFFFFFFFL
+//DAGB2_WRCLI_GPU_SNOOP_OVERRIDE
+#define DAGB2_WRCLI_GPU_SNOOP_OVERRIDE__ENABLE__SHIFT                                                         0x0
+#define DAGB2_WRCLI_GPU_SNOOP_OVERRIDE__ENABLE_MASK                                                           0xFFFFFFFFL
+//DAGB2_WRCLI_GPU_SNOOP_OVERRIDE_VALUE
+#define DAGB2_WRCLI_GPU_SNOOP_OVERRIDE_VALUE__ENABLE__SHIFT                                                   0x0
+#define DAGB2_WRCLI_GPU_SNOOP_OVERRIDE_VALUE__ENABLE_MASK                                                     0xFFFFFFFFL
 //DAGB2_DAGB_DLY
 #define DAGB2_DAGB_DLY__DLY__SHIFT                                                                            0x0
 #define DAGB2_DAGB_DLY__CLI__SHIFT                                                                            0x8
@@ -6557,6 +6575,12 @@
 //DAGB3_WRCLI_DBUS_GO_PENDING
 #define DAGB3_WRCLI_DBUS_GO_PENDING__BUSY__SHIFT                                                              0x0
 #define DAGB3_WRCLI_DBUS_GO_PENDING__BUSY_MASK                                                                0xFFFFFFFFL
+//DAGB3_WRCLI_GPU_SNOOP_OVERRIDE
+#define DAGB3_WRCLI_GPU_SNOOP_OVERRIDE__ENABLE__SHIFT                                                         0x0
+#define DAGB3_WRCLI_GPU_SNOOP_OVERRIDE__ENABLE_MASK                                                           0xFFFFFFFFL
+//DAGB3_WRCLI_GPU_SNOOP_OVERRIDE_VALUE
+#define DAGB3_WRCLI_GPU_SNOOP_OVERRIDE_VALUE__ENABLE__SHIFT                                                   0x0
+#define DAGB3_WRCLI_GPU_SNOOP_OVERRIDE_VALUE__ENABLE_MASK                                                     0xFFFFFFFFL
 //DAGB3_DAGB_DLY
 #define DAGB3_DAGB_DLY__DLY__SHIFT                                                                            0x0
 #define DAGB3_DAGB_DLY__CLI__SHIFT                                                                            0x8
@@ -8232,6 +8256,12 @@
 //DAGB4_WRCLI_DBUS_GO_PENDING
 #define DAGB4_WRCLI_DBUS_GO_PENDING__BUSY__SHIFT                                                              0x0
 #define DAGB4_WRCLI_DBUS_GO_PENDING__BUSY_MASK                                                                0xFFFFFFFFL
+//DAGB4_WRCLI_GPU_SNOOP_OVERRIDE
+#define DAGB4_WRCLI_GPU_SNOOP_OVERRIDE__ENABLE__SHIFT                                                         0x0
+#define DAGB4_WRCLI_GPU_SNOOP_OVERRIDE__ENABLE_MASK                                                           0xFFFFFFFFL
+//DAGB4_WRCLI_GPU_SNOOP_OVERRIDE_VALUE
+#define DAGB4_WRCLI_GPU_SNOOP_OVERRIDE_VALUE__ENABLE__SHIFT                                                   0x0
+#define DAGB4_WRCLI_GPU_SNOOP_OVERRIDE_VALUE__ENABLE_MASK                                                     0xFFFFFFFFL
 //DAGB4_DAGB_DLY
 #define DAGB4_DAGB_DLY__DLY__SHIFT                                                                            0x0
 #define DAGB4_DAGB_DLY__CLI__SHIFT                                                                            0x8
@@ -11185,6 +11215,14 @@
 #define MMEA0_EDC_CNT2__GMIWR_DATAMEM_DED_COUNT__SHIFT                                                        0xa
 #define MMEA0_EDC_CNT2__GMIRD_PAGEMEM_SED_COUNT__SHIFT                                                        0xc
 #define MMEA0_EDC_CNT2__GMIWR_PAGEMEM_SED_COUNT__SHIFT                                                        0xe
+#define MMEA0_EDC_CNT2__MAM_D0MEM_SED_COUNT__SHIFT                                                            0x10
+#define MMEA0_EDC_CNT2__MAM_D1MEM_SED_COUNT__SHIFT                                                            0x12
+#define MMEA0_EDC_CNT2__MAM_D2MEM_SED_COUNT__SHIFT                                                            0x14
+#define MMEA0_EDC_CNT2__MAM_D3MEM_SED_COUNT__SHIFT                                                            0x16
+#define MMEA0_EDC_CNT2__MAM_D0MEM_DED_COUNT__SHIFT                                                            0x18
+#define MMEA0_EDC_CNT2__MAM_D1MEM_DED_COUNT__SHIFT                                                            0x1a
+#define MMEA0_EDC_CNT2__MAM_D2MEM_DED_COUNT__SHIFT                                                            0x1c
+#define MMEA0_EDC_CNT2__MAM_D3MEM_DED_COUNT__SHIFT                                                            0x1e
 #define MMEA0_EDC_CNT2__GMIRD_CMDMEM_SEC_COUNT_MASK                                                           0x00000003L
 #define MMEA0_EDC_CNT2__GMIRD_CMDMEM_DED_COUNT_MASK                                                           0x0000000CL
 #define MMEA0_EDC_CNT2__GMIWR_CMDMEM_SEC_COUNT_MASK                                                           0x00000030L
@@ -11193,6 +11231,14 @@
 #define MMEA0_EDC_CNT2__GMIWR_DATAMEM_DED_COUNT_MASK                                                          0x00000C00L
 #define MMEA0_EDC_CNT2__GMIRD_PAGEMEM_SED_COUNT_MASK                                                          0x00003000L
 #define MMEA0_EDC_CNT2__GMIWR_PAGEMEM_SED_COUNT_MASK                                                          0x0000C000L
+#define MMEA0_EDC_CNT2__MAM_D0MEM_SED_COUNT_MASK                                                              0x00030000L
+#define MMEA0_EDC_CNT2__MAM_D1MEM_SED_COUNT_MASK                                                              0x000C0000L
+#define MMEA0_EDC_CNT2__MAM_D2MEM_SED_COUNT_MASK                                                              0x00300000L
+#define MMEA0_EDC_CNT2__MAM_D3MEM_SED_COUNT_MASK                                                              0x00C00000L
+#define MMEA0_EDC_CNT2__MAM_D0MEM_DED_COUNT_MASK                                                              0x03000000L
+#define MMEA0_EDC_CNT2__MAM_D1MEM_DED_COUNT_MASK                                                              0x0C000000L
+#define MMEA0_EDC_CNT2__MAM_D2MEM_DED_COUNT_MASK                                                              0x30000000L
+#define MMEA0_EDC_CNT2__MAM_D3MEM_DED_COUNT_MASK                                                              0xC0000000L
 //MMEA0_DSM_CNTL
 #define MMEA0_DSM_CNTL__DRAMRD_CMDMEM_DSM_IRRITATOR_DATA__SHIFT                                               0x0
 #define MMEA0_DSM_CNTL__DRAMRD_CMDMEM_ENABLE_SINGLE_WRITE__SHIFT                                              0x2
@@ -14197,6 +14243,14 @@
 #define MMEA1_EDC_CNT2__GMIWR_DATAMEM_DED_COUNT__SHIFT                                                        0xa
 #define MMEA1_EDC_CNT2__GMIRD_PAGEMEM_SED_COUNT__SHIFT                                                        0xc
 #define MMEA1_EDC_CNT2__GMIWR_PAGEMEM_SED_COUNT__SHIFT                                                        0xe
+#define MMEA1_EDC_CNT2__MAM_D0MEM_SED_COUNT__SHIFT                                                            0x10
+#define MMEA1_EDC_CNT2__MAM_D1MEM_SED_COUNT__SHIFT                                                            0x12
+#define MMEA1_EDC_CNT2__MAM_D2MEM_SED_COUNT__SHIFT                                                            0x14
+#define MMEA1_EDC_CNT2__MAM_D3MEM_SED_COUNT__SHIFT                                                            0x16
+#define MMEA1_EDC_CNT2__MAM_D0MEM_DED_COUNT__SHIFT                                                            0x18
+#define MMEA1_EDC_CNT2__MAM_D1MEM_DED_COUNT__SHIFT                                                            0x1a
+#define MMEA1_EDC_CNT2__MAM_D2MEM_DED_COUNT__SHIFT                                                            0x1c
+#define MMEA1_EDC_CNT2__MAM_D3MEM_DED_COUNT__SHIFT                                                            0x1e
 #define MMEA1_EDC_CNT2__GMIRD_CMDMEM_SEC_COUNT_MASK                                                           0x00000003L
 #define MMEA1_EDC_CNT2__GMIRD_CMDMEM_DED_COUNT_MASK                                                           0x0000000CL
 #define MMEA1_EDC_CNT2__GMIWR_CMDMEM_SEC_COUNT_MASK                                                           0x00000030L
@@ -14205,6 +14259,14 @@
 #define MMEA1_EDC_CNT2__GMIWR_DATAMEM_DED_COUNT_MASK                                                          0x00000C00L
 #define MMEA1_EDC_CNT2__GMIRD_PAGEMEM_SED_COUNT_MASK                                                          0x00003000L
 #define MMEA1_EDC_CNT2__GMIWR_PAGEMEM_SED_COUNT_MASK                                                          0x0000C000L
+#define MMEA1_EDC_CNT2__MAM_D0MEM_SED_COUNT_MASK                                                              0x00030000L
+#define MMEA1_EDC_CNT2__MAM_D1MEM_SED_COUNT_MASK                                                              0x000C0000L
+#define MMEA1_EDC_CNT2__MAM_D2MEM_SED_COUNT_MASK                                                              0x00300000L
+#define MMEA1_EDC_CNT2__MAM_D3MEM_SED_COUNT_MASK                                                              0x00C00000L
+#define MMEA1_EDC_CNT2__MAM_D0MEM_DED_COUNT_MASK                                                              0x03000000L
+#define MMEA1_EDC_CNT2__MAM_D1MEM_DED_COUNT_MASK                                                              0x0C000000L
+#define MMEA1_EDC_CNT2__MAM_D2MEM_DED_COUNT_MASK                                                              0x30000000L
+#define MMEA1_EDC_CNT2__MAM_D3MEM_DED_COUNT_MASK                                                              0xC0000000L
 //MMEA1_DSM_CNTL
 #define MMEA1_DSM_CNTL__DRAMRD_CMDMEM_DSM_IRRITATOR_DATA__SHIFT                                               0x0
 #define MMEA1_DSM_CNTL__DRAMRD_CMDMEM_ENABLE_SINGLE_WRITE__SHIFT                                              0x2
@@ -17209,6 +17271,14 @@
 #define MMEA2_EDC_CNT2__GMIWR_DATAMEM_DED_COUNT__SHIFT                                                        0xa
 #define MMEA2_EDC_CNT2__GMIRD_PAGEMEM_SED_COUNT__SHIFT                                                        0xc
 #define MMEA2_EDC_CNT2__GMIWR_PAGEMEM_SED_COUNT__SHIFT                                                        0xe
+#define MMEA2_EDC_CNT2__MAM_D0MEM_SED_COUNT__SHIFT                                                            0x10
+#define MMEA2_EDC_CNT2__MAM_D1MEM_SED_COUNT__SHIFT                                                            0x12
+#define MMEA2_EDC_CNT2__MAM_D2MEM_SED_COUNT__SHIFT                                                            0x14
+#define MMEA2_EDC_CNT2__MAM_D3MEM_SED_COUNT__SHIFT                                                            0x16
+#define MMEA2_EDC_CNT2__MAM_D0MEM_DED_COUNT__SHIFT                                                            0x18
+#define MMEA2_EDC_CNT2__MAM_D1MEM_DED_COUNT__SHIFT                                                            0x1a
+#define MMEA2_EDC_CNT2__MAM_D2MEM_DED_COUNT__SHIFT                                                            0x1c
+#define MMEA2_EDC_CNT2__MAM_D3MEM_DED_COUNT__SHIFT                                                            0x1e
 #define MMEA2_EDC_CNT2__GMIRD_CMDMEM_SEC_COUNT_MASK                                                           0x00000003L
 #define MMEA2_EDC_CNT2__GMIRD_CMDMEM_DED_COUNT_MASK                                                           0x0000000CL
 #define MMEA2_EDC_CNT2__GMIWR_CMDMEM_SEC_COUNT_MASK                                                           0x00000030L
@@ -17217,6 +17287,14 @@
 #define MMEA2_EDC_CNT2__GMIWR_DATAMEM_DED_COUNT_MASK                                                          0x00000C00L
 #define MMEA2_EDC_CNT2__GMIRD_PAGEMEM_SED_COUNT_MASK                                                          0x00003000L
 #define MMEA2_EDC_CNT2__GMIWR_PAGEMEM_SED_COUNT_MASK                                                          0x0000C000L
+#define MMEA2_EDC_CNT2__MAM_D0MEM_SED_COUNT_MASK                                                              0x00030000L
+#define MMEA2_EDC_CNT2__MAM_D1MEM_SED_COUNT_MASK                                                              0x000C0000L
+#define MMEA2_EDC_CNT2__MAM_D2MEM_SED_COUNT_MASK                                                              0x00300000L
+#define MMEA2_EDC_CNT2__MAM_D3MEM_SED_COUNT_MASK                                                              0x00C00000L
+#define MMEA2_EDC_CNT2__MAM_D0MEM_DED_COUNT_MASK                                                              0x03000000L
+#define MMEA2_EDC_CNT2__MAM_D1MEM_DED_COUNT_MASK                                                              0x0C000000L
+#define MMEA2_EDC_CNT2__MAM_D2MEM_DED_COUNT_MASK                                                              0x30000000L
+#define MMEA2_EDC_CNT2__MAM_D3MEM_DED_COUNT_MASK                                                              0xC0000000L
 //MMEA2_DSM_CNTL
 #define MMEA2_DSM_CNTL__DRAMRD_CMDMEM_DSM_IRRITATOR_DATA__SHIFT                                               0x0
 #define MMEA2_DSM_CNTL__DRAMRD_CMDMEM_ENABLE_SINGLE_WRITE__SHIFT                                              0x2
@@ -20221,6 +20299,14 @@
 #define MMEA3_EDC_CNT2__GMIWR_DATAMEM_DED_COUNT__SHIFT                                                        0xa
 #define MMEA3_EDC_CNT2__GMIRD_PAGEMEM_SED_COUNT__SHIFT                                                        0xc
 #define MMEA3_EDC_CNT2__GMIWR_PAGEMEM_SED_COUNT__SHIFT                                                        0xe
+#define MMEA3_EDC_CNT2__MAM_D0MEM_SED_COUNT__SHIFT                                                            0x10
+#define MMEA3_EDC_CNT2__MAM_D1MEM_SED_COUNT__SHIFT                                                            0x12
+#define MMEA3_EDC_CNT2__MAM_D2MEM_SED_COUNT__SHIFT                                                            0x14
+#define MMEA3_EDC_CNT2__MAM_D3MEM_SED_COUNT__SHIFT                                                            0x16
+#define MMEA3_EDC_CNT2__MAM_D0MEM_DED_COUNT__SHIFT                                                            0x18
+#define MMEA3_EDC_CNT2__MAM_D1MEM_DED_COUNT__SHIFT                                                            0x1a
+#define MMEA3_EDC_CNT2__MAM_D2MEM_DED_COUNT__SHIFT                                                            0x1c
+#define MMEA3_EDC_CNT2__MAM_D3MEM_DED_COUNT__SHIFT                                                            0x1e
 #define MMEA3_EDC_CNT2__GMIRD_CMDMEM_SEC_COUNT_MASK                                                           0x00000003L
 #define MMEA3_EDC_CNT2__GMIRD_CMDMEM_DED_COUNT_MASK                                                           0x0000000CL
 #define MMEA3_EDC_CNT2__GMIWR_CMDMEM_SEC_COUNT_MASK                                                           0x00000030L
@@ -20229,6 +20315,14 @@
 #define MMEA3_EDC_CNT2__GMIWR_DATAMEM_DED_COUNT_MASK                                                          0x00000C00L
 #define MMEA3_EDC_CNT2__GMIRD_PAGEMEM_SED_COUNT_MASK                                                          0x00003000L
 #define MMEA3_EDC_CNT2__GMIWR_PAGEMEM_SED_COUNT_MASK                                                          0x0000C000L
+#define MMEA3_EDC_CNT2__MAM_D0MEM_SED_COUNT_MASK                                                              0x00030000L
+#define MMEA3_EDC_CNT2__MAM_D1MEM_SED_COUNT_MASK                                                              0x000C0000L
+#define MMEA3_EDC_CNT2__MAM_D2MEM_SED_COUNT_MASK                                                              0x00300000L
+#define MMEA3_EDC_CNT2__MAM_D3MEM_SED_COUNT_MASK                                                              0x00C00000L
+#define MMEA3_EDC_CNT2__MAM_D0MEM_DED_COUNT_MASK                                                              0x03000000L
+#define MMEA3_EDC_CNT2__MAM_D1MEM_DED_COUNT_MASK                                                              0x0C000000L
+#define MMEA3_EDC_CNT2__MAM_D2MEM_DED_COUNT_MASK                                                              0x30000000L
+#define MMEA3_EDC_CNT2__MAM_D3MEM_DED_COUNT_MASK                                                              0xC0000000L
 //MMEA3_DSM_CNTL
 #define MMEA3_DSM_CNTL__DRAMRD_CMDMEM_DSM_IRRITATOR_DATA__SHIFT                                               0x0
 #define MMEA3_DSM_CNTL__DRAMRD_CMDMEM_ENABLE_SINGLE_WRITE__SHIFT                                              0x2
@@ -23233,6 +23327,14 @@
 #define MMEA4_EDC_CNT2__GMIWR_DATAMEM_DED_COUNT__SHIFT                                                        0xa
 #define MMEA4_EDC_CNT2__GMIRD_PAGEMEM_SED_COUNT__SHIFT                                                        0xc
 #define MMEA4_EDC_CNT2__GMIWR_PAGEMEM_SED_COUNT__SHIFT                                                        0xe
+#define MMEA4_EDC_CNT2__MAM_D0MEM_SED_COUNT__SHIFT                                                            0x10
+#define MMEA4_EDC_CNT2__MAM_D1MEM_SED_COUNT__SHIFT                                                            0x12
+#define MMEA4_EDC_CNT2__MAM_D2MEM_SED_COUNT__SHIFT                                                            0x14
+#define MMEA4_EDC_CNT2__MAM_D3MEM_SED_COUNT__SHIFT                                                            0x16
+#define MMEA4_EDC_CNT2__MAM_D0MEM_DED_COUNT__SHIFT                                                            0x18
+#define MMEA4_EDC_CNT2__MAM_D1MEM_DED_COUNT__SHIFT                                                            0x1a
+#define MMEA4_EDC_CNT2__MAM_D2MEM_DED_COUNT__SHIFT                                                            0x1c
+#define MMEA4_EDC_CNT2__MAM_D3MEM_DED_COUNT__SHIFT                                                            0x1e
 #define MMEA4_EDC_CNT2__GMIRD_CMDMEM_SEC_COUNT_MASK                                                           0x00000003L
 #define MMEA4_EDC_CNT2__GMIRD_CMDMEM_DED_COUNT_MASK                                                           0x0000000CL
 #define MMEA4_EDC_CNT2__GMIWR_CMDMEM_SEC_COUNT_MASK                                                           0x00000030L
@@ -23241,6 +23343,14 @@
 #define MMEA4_EDC_CNT2__GMIWR_DATAMEM_DED_COUNT_MASK                                                          0x00000C00L
 #define MMEA4_EDC_CNT2__GMIRD_PAGEMEM_SED_COUNT_MASK                                                          0x00003000L
 #define MMEA4_EDC_CNT2__GMIWR_PAGEMEM_SED_COUNT_MASK                                                          0x0000C000L
+#define MMEA4_EDC_CNT2__MAM_D0MEM_SED_COUNT_MASK                                                              0x00030000L
+#define MMEA4_EDC_CNT2__MAM_D1MEM_SED_COUNT_MASK                                                              0x000C0000L
+#define MMEA4_EDC_CNT2__MAM_D2MEM_SED_COUNT_MASK                                                              0x00300000L
+#define MMEA4_EDC_CNT2__MAM_D3MEM_SED_COUNT_MASK                                                              0x00C00000L
+#define MMEA4_EDC_CNT2__MAM_D0MEM_DED_COUNT_MASK                                                              0x03000000L
+#define MMEA4_EDC_CNT2__MAM_D1MEM_DED_COUNT_MASK                                                              0x0C000000L
+#define MMEA4_EDC_CNT2__MAM_D2MEM_DED_COUNT_MASK                                                              0x30000000L
+#define MMEA4_EDC_CNT2__MAM_D3MEM_DED_COUNT_MASK                                                              0xC0000000L
 //MMEA4_DSM_CNTL
 #define MMEA4_DSM_CNTL__DRAMRD_CMDMEM_DSM_IRRITATOR_DATA__SHIFT                                               0x0
 #define MMEA4_DSM_CNTL__DRAMRD_CMDMEM_ENABLE_SINGLE_WRITE__SHIFT                                              0x2
@@ -26648,6 +26758,14 @@
 //VMSHAREDPF0_MC_VM_CACHEABLE_DRAM_CNTL
 #define VMSHAREDPF0_MC_VM_CACHEABLE_DRAM_CNTL__ENABLE_CACHEABLE_DRAM_ADDRESS_APERTURE__SHIFT                  0x0
 #define VMSHAREDPF0_MC_VM_CACHEABLE_DRAM_CNTL__ENABLE_CACHEABLE_DRAM_ADDRESS_APERTURE_MASK                    0x00000001L
+//MC_VM_XGMI_LFB_CNTL
+#define MC_VM_XGMI_LFB_CNTL__PF_LFB_REGION__SHIFT                                                             0x0
+#define MC_VM_XGMI_LFB_CNTL__PF_MAX_REGION__SHIFT                                                             0x3
+#define MC_VM_XGMI_LFB_CNTL__PF_LFB_REGION_MASK                                                               0x00000007L
+#define MC_VM_XGMI_LFB_CNTL__PF_MAX_REGION_MASK                                                               0x00000038L
+//MC_VM_XGMI_LFB_SIZE
+#define MC_VM_XGMI_LFB_SIZE__PF_LFB_SIZE__SHIFT                                                               0x0
+#define MC_VM_XGMI_LFB_SIZE__PF_LFB_SIZE_MASK                                                                 0x0000FFFFL
 
 
 // addressBlock: mmhub_utcl2_vmsharedvcdec
@@ -28649,6 +28767,12 @@
 //DAGB5_WRCLI_DBUS_GO_PENDING
 #define DAGB5_WRCLI_DBUS_GO_PENDING__BUSY__SHIFT                                                              0x0
 #define DAGB5_WRCLI_DBUS_GO_PENDING__BUSY_MASK                                                                0xFFFFFFFFL
+//DAGB5_WRCLI_GPU_SNOOP_OVERRIDE
+#define DAGB5_WRCLI_GPU_SNOOP_OVERRIDE__ENABLE__SHIFT                                                         0x0
+#define DAGB5_WRCLI_GPU_SNOOP_OVERRIDE__ENABLE_MASK                                                           0xFFFFFFFFL
+//DAGB5_WRCLI_GPU_SNOOP_OVERRIDE_VALUE
+#define DAGB5_WRCLI_GPU_SNOOP_OVERRIDE_VALUE__ENABLE__SHIFT                                                   0x0
+#define DAGB5_WRCLI_GPU_SNOOP_OVERRIDE_VALUE__ENABLE_MASK                                                     0xFFFFFFFFL
 //DAGB5_DAGB_DLY
 #define DAGB5_DAGB_DLY__DLY__SHIFT                                                                            0x0
 #define DAGB5_DAGB_DLY__CLI__SHIFT                                                                            0x8
@@ -30324,6 +30448,12 @@
 //DAGB6_WRCLI_DBUS_GO_PENDING
 #define DAGB6_WRCLI_DBUS_GO_PENDING__BUSY__SHIFT                                                              0x0
 #define DAGB6_WRCLI_DBUS_GO_PENDING__BUSY_MASK                                                                0xFFFFFFFFL
+//DAGB6_WRCLI_GPU_SNOOP_OVERRIDE
+#define DAGB6_WRCLI_GPU_SNOOP_OVERRIDE__ENABLE__SHIFT                                                         0x0
+#define DAGB6_WRCLI_GPU_SNOOP_OVERRIDE__ENABLE_MASK                                                           0xFFFFFFFFL
+//DAGB6_WRCLI_GPU_SNOOP_OVERRIDE_VALUE
+#define DAGB6_WRCLI_GPU_SNOOP_OVERRIDE_VALUE__ENABLE__SHIFT                                                   0x0
+#define DAGB6_WRCLI_GPU_SNOOP_OVERRIDE_VALUE__ENABLE_MASK                                                     0xFFFFFFFFL
 //DAGB6_DAGB_DLY
 #define DAGB6_DAGB_DLY__DLY__SHIFT                                                                            0x0
 #define DAGB6_DAGB_DLY__CLI__SHIFT                                                                            0x8
@@ -31999,6 +32129,12 @@
 //DAGB7_WRCLI_DBUS_GO_PENDING
 #define DAGB7_WRCLI_DBUS_GO_PENDING__BUSY__SHIFT                                                              0x0
 #define DAGB7_WRCLI_DBUS_GO_PENDING__BUSY_MASK                                                                0xFFFFFFFFL
+//DAGB7_WRCLI_GPU_SNOOP_OVERRIDE
+#define DAGB7_WRCLI_GPU_SNOOP_OVERRIDE__ENABLE__SHIFT                                                         0x0
+#define DAGB7_WRCLI_GPU_SNOOP_OVERRIDE__ENABLE_MASK                                                           0xFFFFFFFFL
+//DAGB7_WRCLI_GPU_SNOOP_OVERRIDE_VALUE
+#define DAGB7_WRCLI_GPU_SNOOP_OVERRIDE_VALUE__ENABLE__SHIFT                                                   0x0
+#define DAGB7_WRCLI_GPU_SNOOP_OVERRIDE_VALUE__ENABLE_MASK                                                     0xFFFFFFFFL
 //DAGB7_DAGB_DLY
 #define DAGB7_DAGB_DLY__DLY__SHIFT                                                                            0x0
 #define DAGB7_DAGB_DLY__CLI__SHIFT                                                                            0x8
@@ -34952,6 +35088,14 @@
 #define MMEA5_EDC_CNT2__GMIWR_DATAMEM_DED_COUNT__SHIFT                                                        0xa
 #define MMEA5_EDC_CNT2__GMIRD_PAGEMEM_SED_COUNT__SHIFT                                                        0xc
 #define MMEA5_EDC_CNT2__GMIWR_PAGEMEM_SED_COUNT__SHIFT                                                        0xe
+#define MMEA5_EDC_CNT2__MAM_D0MEM_SED_COUNT__SHIFT                                                            0x10
+#define MMEA5_EDC_CNT2__MAM_D1MEM_SED_COUNT__SHIFT                                                            0x12
+#define MMEA5_EDC_CNT2__MAM_D2MEM_SED_COUNT__SHIFT                                                            0x14
+#define MMEA5_EDC_CNT2__MAM_D3MEM_SED_COUNT__SHIFT                                                            0x16
+#define MMEA5_EDC_CNT2__MAM_D0MEM_DED_COUNT__SHIFT                                                            0x18
+#define MMEA5_EDC_CNT2__MAM_D1MEM_DED_COUNT__SHIFT                                                            0x1a
+#define MMEA5_EDC_CNT2__MAM_D2MEM_DED_COUNT__SHIFT                                                            0x1c
+#define MMEA5_EDC_CNT2__MAM_D3MEM_DED_COUNT__SHIFT                                                            0x1e
 #define MMEA5_EDC_CNT2__GMIRD_CMDMEM_SEC_COUNT_MASK                                                           0x00000003L
 #define MMEA5_EDC_CNT2__GMIRD_CMDMEM_DED_COUNT_MASK                                                           0x0000000CL
 #define MMEA5_EDC_CNT2__GMIWR_CMDMEM_SEC_COUNT_MASK                                                           0x00000030L
@@ -34960,6 +35104,14 @@
 #define MMEA5_EDC_CNT2__GMIWR_DATAMEM_DED_COUNT_MASK                                                          0x00000C00L
 #define MMEA5_EDC_CNT2__GMIRD_PAGEMEM_SED_COUNT_MASK                                                          0x00003000L
 #define MMEA5_EDC_CNT2__GMIWR_PAGEMEM_SED_COUNT_MASK                                                          0x0000C000L
+#define MMEA5_EDC_CNT2__MAM_D0MEM_SED_COUNT_MASK                                                              0x00030000L
+#define MMEA5_EDC_CNT2__MAM_D1MEM_SED_COUNT_MASK                                                              0x000C0000L
+#define MMEA5_EDC_CNT2__MAM_D2MEM_SED_COUNT_MASK                                                              0x00300000L
+#define MMEA5_EDC_CNT2__MAM_D3MEM_SED_COUNT_MASK                                                              0x00C00000L
+#define MMEA5_EDC_CNT2__MAM_D0MEM_DED_COUNT_MASK                                                              0x03000000L
+#define MMEA5_EDC_CNT2__MAM_D1MEM_DED_COUNT_MASK                                                              0x0C000000L
+#define MMEA5_EDC_CNT2__MAM_D2MEM_DED_COUNT_MASK                                                              0x30000000L
+#define MMEA5_EDC_CNT2__MAM_D3MEM_DED_COUNT_MASK                                                              0xC0000000L
 //MMEA5_DSM_CNTL
 #define MMEA5_DSM_CNTL__DRAMRD_CMDMEM_DSM_IRRITATOR_DATA__SHIFT                                               0x0
 #define MMEA5_DSM_CNTL__DRAMRD_CMDMEM_ENABLE_SINGLE_WRITE__SHIFT                                              0x2
@@ -37964,6 +38116,14 @@
 #define MMEA6_EDC_CNT2__GMIWR_DATAMEM_DED_COUNT__SHIFT                                                        0xa
 #define MMEA6_EDC_CNT2__GMIRD_PAGEMEM_SED_COUNT__SHIFT                                                        0xc
 #define MMEA6_EDC_CNT2__GMIWR_PAGEMEM_SED_COUNT__SHIFT                                                        0xe
+#define MMEA6_EDC_CNT2__MAM_D0MEM_SED_COUNT__SHIFT                                                            0x10
+#define MMEA6_EDC_CNT2__MAM_D1MEM_SED_COUNT__SHIFT                                                            0x12
+#define MMEA6_EDC_CNT2__MAM_D2MEM_SED_COUNT__SHIFT                                                            0x14
+#define MMEA6_EDC_CNT2__MAM_D3MEM_SED_COUNT__SHIFT                                                            0x16
+#define MMEA6_EDC_CNT2__MAM_D0MEM_DED_COUNT__SHIFT                                                            0x18
+#define MMEA6_EDC_CNT2__MAM_D1MEM_DED_COUNT__SHIFT                                                            0x1a
+#define MMEA6_EDC_CNT2__MAM_D2MEM_DED_COUNT__SHIFT                                                            0x1c
+#define MMEA6_EDC_CNT2__MAM_D3MEM_DED_COUNT__SHIFT                                                            0x1e
 #define MMEA6_EDC_CNT2__GMIRD_CMDMEM_SEC_COUNT_MASK                                                           0x00000003L
 #define MMEA6_EDC_CNT2__GMIRD_CMDMEM_DED_COUNT_MASK                                                           0x0000000CL
 #define MMEA6_EDC_CNT2__GMIWR_CMDMEM_SEC_COUNT_MASK                                                           0x00000030L
@@ -37972,6 +38132,14 @@
 #define MMEA6_EDC_CNT2__GMIWR_DATAMEM_DED_COUNT_MASK                                                          0x00000C00L
 #define MMEA6_EDC_CNT2__GMIRD_PAGEMEM_SED_COUNT_MASK                                                          0x00003000L
 #define MMEA6_EDC_CNT2__GMIWR_PAGEMEM_SED_COUNT_MASK                                                          0x0000C000L
+#define MMEA6_EDC_CNT2__MAM_D0MEM_SED_COUNT_MASK                                                              0x00030000L
+#define MMEA6_EDC_CNT2__MAM_D1MEM_SED_COUNT_MASK                                                              0x000C0000L
+#define MMEA6_EDC_CNT2__MAM_D2MEM_SED_COUNT_MASK                                                              0x00300000L
+#define MMEA6_EDC_CNT2__MAM_D3MEM_SED_COUNT_MASK                                                              0x00C00000L
+#define MMEA6_EDC_CNT2__MAM_D0MEM_DED_COUNT_MASK                                                              0x03000000L
+#define MMEA6_EDC_CNT2__MAM_D1MEM_DED_COUNT_MASK                                                              0x0C000000L
+#define MMEA6_EDC_CNT2__MAM_D2MEM_DED_COUNT_MASK                                                              0x30000000L
+#define MMEA6_EDC_CNT2__MAM_D3MEM_DED_COUNT_MASK                                                              0xC0000000L
 //MMEA6_DSM_CNTL
 #define MMEA6_DSM_CNTL__DRAMRD_CMDMEM_DSM_IRRITATOR_DATA__SHIFT                                               0x0
 #define MMEA6_DSM_CNTL__DRAMRD_CMDMEM_ENABLE_SINGLE_WRITE__SHIFT                                              0x2
@@ -40976,6 +41144,14 @@
 #define MMEA7_EDC_CNT2__GMIWR_DATAMEM_DED_COUNT__SHIFT                                                        0xa
 #define MMEA7_EDC_CNT2__GMIRD_PAGEMEM_SED_COUNT__SHIFT                                                        0xc
 #define MMEA7_EDC_CNT2__GMIWR_PAGEMEM_SED_COUNT__SHIFT                                                        0xe
+#define MMEA7_EDC_CNT2__MAM_D0MEM_SED_COUNT__SHIFT                                                            0x10
+#define MMEA7_EDC_CNT2__MAM_D1MEM_SED_COUNT__SHIFT                                                            0x12
+#define MMEA7_EDC_CNT2__MAM_D2MEM_SED_COUNT__SHIFT                                                            0x14
+#define MMEA7_EDC_CNT2__MAM_D3MEM_SED_COUNT__SHIFT                                                            0x16
+#define MMEA7_EDC_CNT2__MAM_D0MEM_DED_COUNT__SHIFT                                                            0x18
+#define MMEA7_EDC_CNT2__MAM_D1MEM_DED_COUNT__SHIFT                                                            0x1a
+#define MMEA7_EDC_CNT2__MAM_D2MEM_DED_COUNT__SHIFT                                                            0x1c
+#define MMEA7_EDC_CNT2__MAM_D3MEM_DED_COUNT__SHIFT                                                            0x1e
 #define MMEA7_EDC_CNT2__GMIRD_CMDMEM_SEC_COUNT_MASK                                                           0x00000003L
 #define MMEA7_EDC_CNT2__GMIRD_CMDMEM_DED_COUNT_MASK                                                           0x0000000CL
 #define MMEA7_EDC_CNT2__GMIWR_CMDMEM_SEC_COUNT_MASK                                                           0x00000030L
@@ -40984,6 +41160,14 @@
 #define MMEA7_EDC_CNT2__GMIWR_DATAMEM_DED_COUNT_MASK                                                          0x00000C00L
 #define MMEA7_EDC_CNT2__GMIRD_PAGEMEM_SED_COUNT_MASK                                                          0x00003000L
 #define MMEA7_EDC_CNT2__GMIWR_PAGEMEM_SED_COUNT_MASK                                                          0x0000C000L
+#define MMEA7_EDC_CNT2__MAM_D0MEM_SED_COUNT_MASK                                                              0x00030000L
+#define MMEA7_EDC_CNT2__MAM_D1MEM_SED_COUNT_MASK                                                              0x000C0000L
+#define MMEA7_EDC_CNT2__MAM_D2MEM_SED_COUNT_MASK                                                              0x00300000L
+#define MMEA7_EDC_CNT2__MAM_D3MEM_SED_COUNT_MASK                                                              0x00C00000L
+#define MMEA7_EDC_CNT2__MAM_D0MEM_DED_COUNT_MASK                                                              0x03000000L
+#define MMEA7_EDC_CNT2__MAM_D1MEM_DED_COUNT_MASK                                                              0x0C000000L
+#define MMEA7_EDC_CNT2__MAM_D2MEM_DED_COUNT_MASK                                                              0x30000000L
+#define MMEA7_EDC_CNT2__MAM_D3MEM_DED_COUNT_MASK                                                              0xC0000000L
 //MMEA7_DSM_CNTL
 #define MMEA7_DSM_CNTL__DRAMRD_CMDMEM_DSM_IRRITATOR_DATA__SHIFT                                               0x0
 #define MMEA7_DSM_CNTL__DRAMRD_CMDMEM_ENABLE_SINGLE_WRITE__SHIFT                                              0x2

@@ -193,7 +193,7 @@ s32 igc_force_mac_fc(struct igc_hw *hw)
 	 *      1:  Rx flow control is enabled (we can receive pause
 	 *          frames but not send pause frames).
 	 *      2:  Tx flow control is enabled (we can send pause frames
-	 *          frames but we do not receive pause frames).
+	 *          but we do not receive pause frames).
 	 *      3:  Both Rx and TX flow control (symmetric) is enabled.
 	 *  other:  No other values should be possible at this point.
 	 */
@@ -235,15 +235,14 @@ out:
 void igc_clear_hw_cntrs_base(struct igc_hw *hw)
 {
 	rd32(IGC_CRCERRS);
-	rd32(IGC_SYMERRS);
 	rd32(IGC_MPC);
 	rd32(IGC_SCC);
 	rd32(IGC_ECOL);
 	rd32(IGC_MCC);
 	rd32(IGC_LATECOL);
 	rd32(IGC_COLC);
+	rd32(IGC_RERC);
 	rd32(IGC_DC);
-	rd32(IGC_SEC);
 	rd32(IGC_RLEC);
 	rd32(IGC_XONRXC);
 	rd32(IGC_XONTXC);
@@ -288,31 +287,20 @@ void igc_clear_hw_cntrs_base(struct igc_hw *hw)
 	rd32(IGC_ALGNERRC);
 	rd32(IGC_RXERRC);
 	rd32(IGC_TNCRS);
-	rd32(IGC_CEXTERR);
+	rd32(IGC_HTDPMC);
 	rd32(IGC_TSCTC);
-	rd32(IGC_TSCTFC);
 
 	rd32(IGC_MGTPRC);
 	rd32(IGC_MGTPDC);
 	rd32(IGC_MGTPTC);
 
 	rd32(IGC_IAC);
-	rd32(IGC_ICRXOC);
 
-	rd32(IGC_ICRXPTC);
-	rd32(IGC_ICRXATC);
-	rd32(IGC_ICTXPTC);
-	rd32(IGC_ICTXATC);
-	rd32(IGC_ICTXQEC);
-	rd32(IGC_ICTXQMTC);
-	rd32(IGC_ICRXDMTC);
-
-	rd32(IGC_CBTMPC);
-	rd32(IGC_HTDPMC);
-	rd32(IGC_CBRMPC);
 	rd32(IGC_RPTHC);
+	rd32(IGC_TLPIC);
+	rd32(IGC_RLPIC);
 	rd32(IGC_HGPTC);
-	rd32(IGC_HTCBDPC);
+	rd32(IGC_RXDMTC);
 	rd32(IGC_HGORCL);
 	rd32(IGC_HGORCH);
 	rd32(IGC_HGOTCL);
@@ -367,8 +355,8 @@ void igc_rar_set(struct igc_hw *hw, u8 *addr, u32 index)
 s32 igc_check_for_copper_link(struct igc_hw *hw)
 {
 	struct igc_mac_info *mac = &hw->mac;
+	bool link = false;
 	s32 ret_val;
-	bool link;
 
 	/* We only want to go out to the PHY registers to see if Auto-Neg
 	 * has completed and/or if our link status has changed.  The
@@ -398,14 +386,6 @@ s32 igc_check_for_copper_link(struct igc_hw *hw)
 	 */
 	igc_check_downshift(hw);
 
-	/* If we are forcing speed/duplex, then we simply return since
-	 * we have already determined whether we have link or not.
-	 */
-	if (!mac->autoneg) {
-		ret_val = -IGC_ERR_CONFIG;
-		goto out;
-	}
-
 	/* Auto-Neg is enabled.  Auto Speed Detection takes care
 	 * of MAC speed/duplex configuration.  So we only need to
 	 * configure Collision Distance in the MAC.
@@ -422,6 +402,11 @@ s32 igc_check_for_copper_link(struct igc_hw *hw)
 		hw_dbg("Error configuring flow control\n");
 
 out:
+	/* Now that we are aware of our link settings, we can set the LTR
+	 * thresholds.
+	 */
+	ret_val = igc_set_ltr_i225(hw, link);
+
 	return ret_val;
 }
 
@@ -467,187 +452,183 @@ s32 igc_config_fc_after_link_up(struct igc_hw *hw)
 	 * so we had to force link.  In this case, we need to force the
 	 * configuration of the MAC to match the "fc" parameter.
 	 */
-	if (mac->autoneg_failed) {
-		if (hw->phy.media_type == igc_media_type_copper)
-			ret_val = igc_force_mac_fc(hw);
-	}
+	if (mac->autoneg_failed)
+		ret_val = igc_force_mac_fc(hw);
 
 	if (ret_val) {
 		hw_dbg("Error forcing flow control settings\n");
 		goto out;
 	}
 
-	/* Check for the case where we have copper media and auto-neg is
-	 * enabled.  In this case, we need to check and see if Auto-Neg
-	 * has completed, and if so, how the PHY and link partner has
-	 * flow control configured.
+	/* In auto-neg, we need to check and see if Auto-Neg has completed,
+	 * and if so, how the PHY and link partner has flow control
+	 * configured.
 	 */
-	if (hw->phy.media_type == igc_media_type_copper && mac->autoneg) {
-		/* Read the MII Status Register and check to see if AutoNeg
-		 * has completed.  We read this twice because this reg has
-		 * some "sticky" (latched) bits.
-		 */
-		ret_val = hw->phy.ops.read_reg(hw, PHY_STATUS,
-					       &mii_status_reg);
-		if (ret_val)
-			goto out;
-		ret_val = hw->phy.ops.read_reg(hw, PHY_STATUS,
-					       &mii_status_reg);
-		if (ret_val)
-			goto out;
 
-		if (!(mii_status_reg & MII_SR_AUTONEG_COMPLETE)) {
-			hw_dbg("Copper PHY and Auto Neg has not completed.\n");
-			goto out;
-		}
+	/* Read the MII Status Register and check to see if AutoNeg
+	 * has completed.  We read this twice because this reg has
+	 * some "sticky" (latched) bits.
+	 */
+	ret_val = hw->phy.ops.read_reg(hw, PHY_STATUS,
+				       &mii_status_reg);
+	if (ret_val)
+		goto out;
+	ret_val = hw->phy.ops.read_reg(hw, PHY_STATUS,
+				       &mii_status_reg);
+	if (ret_val)
+		goto out;
 
-		/* The AutoNeg process has completed, so we now need to
-		 * read both the Auto Negotiation Advertisement
-		 * Register (Address 4) and the Auto_Negotiation Base
-		 * Page Ability Register (Address 5) to determine how
-		 * flow control was negotiated.
-		 */
-		ret_val = hw->phy.ops.read_reg(hw, PHY_AUTONEG_ADV,
-					       &mii_nway_adv_reg);
-		if (ret_val)
-			goto out;
-		ret_val = hw->phy.ops.read_reg(hw, PHY_LP_ABILITY,
-					       &mii_nway_lp_ability_reg);
-		if (ret_val)
-			goto out;
-		/* Two bits in the Auto Negotiation Advertisement Register
-		 * (Address 4) and two bits in the Auto Negotiation Base
-		 * Page Ability Register (Address 5) determine flow control
-		 * for both the PHY and the link partner.  The following
-		 * table, taken out of the IEEE 802.3ab/D6.0 dated March 25,
-		 * 1999, describes these PAUSE resolution bits and how flow
-		 * control is determined based upon these settings.
-		 * NOTE:  DC = Don't Care
-		 *
-		 *   LOCAL DEVICE  |   LINK PARTNER
-		 * PAUSE | ASM_DIR | PAUSE | ASM_DIR | NIC Resolution
-		 *-------|---------|-------|---------|--------------------
-		 *   0   |    0    |  DC   |   DC    | igc_fc_none
-		 *   0   |    1    |   0   |   DC    | igc_fc_none
-		 *   0   |    1    |   1   |    0    | igc_fc_none
-		 *   0   |    1    |   1   |    1    | igc_fc_tx_pause
-		 *   1   |    0    |   0   |   DC    | igc_fc_none
-		 *   1   |   DC    |   1   |   DC    | igc_fc_full
-		 *   1   |    1    |   0   |    0    | igc_fc_none
-		 *   1   |    1    |   0   |    1    | igc_fc_rx_pause
-		 *
-		 * Are both PAUSE bits set to 1?  If so, this implies
-		 * Symmetric Flow Control is enabled at both ends.  The
-		 * ASM_DIR bits are irrelevant per the spec.
-		 *
-		 * For Symmetric Flow Control:
-		 *
-		 *   LOCAL DEVICE  |   LINK PARTNER
-		 * PAUSE | ASM_DIR | PAUSE | ASM_DIR | Result
-		 *-------|---------|-------|---------|--------------------
-		 *   1   |   DC    |   1   |   DC    | IGC_fc_full
-		 *
-		 */
-		if ((mii_nway_adv_reg & NWAY_AR_PAUSE) &&
-		    (mii_nway_lp_ability_reg & NWAY_LPAR_PAUSE)) {
-			/* Now we need to check if the user selected RX ONLY
-			 * of pause frames.  In this case, we had to advertise
-			 * FULL flow control because we could not advertise RX
-			 * ONLY. Hence, we must now check to see if we need to
-			 * turn OFF  the TRANSMISSION of PAUSE frames.
-			 */
-			if (hw->fc.requested_mode == igc_fc_full) {
-				hw->fc.current_mode = igc_fc_full;
-				hw_dbg("Flow Control = FULL.\n");
-			} else {
-				hw->fc.current_mode = igc_fc_rx_pause;
-				hw_dbg("Flow Control = RX PAUSE frames only.\n");
-			}
-		}
+	if (!(mii_status_reg & MII_SR_AUTONEG_COMPLETE)) {
+		hw_dbg("Copper PHY and Auto Neg has not completed.\n");
+		goto out;
+	}
 
-		/* For receiving PAUSE frames ONLY.
-		 *
-		 *   LOCAL DEVICE  |   LINK PARTNER
-		 * PAUSE | ASM_DIR | PAUSE | ASM_DIR | Result
-		 *-------|---------|-------|---------|--------------------
-		 *   0   |    1    |   1   |    1    | igc_fc_tx_pause
+	/* The AutoNeg process has completed, so we now need to
+	 * read both the Auto Negotiation Advertisement
+	 * Register (Address 4) and the Auto_Negotiation Base
+	 * Page Ability Register (Address 5) to determine how
+	 * flow control was negotiated.
+	 */
+	ret_val = hw->phy.ops.read_reg(hw, PHY_AUTONEG_ADV,
+				       &mii_nway_adv_reg);
+	if (ret_val)
+		goto out;
+	ret_val = hw->phy.ops.read_reg(hw, PHY_LP_ABILITY,
+				       &mii_nway_lp_ability_reg);
+	if (ret_val)
+		goto out;
+	/* Two bits in the Auto Negotiation Advertisement Register
+	 * (Address 4) and two bits in the Auto Negotiation Base
+	 * Page Ability Register (Address 5) determine flow control
+	 * for both the PHY and the link partner.  The following
+	 * table, taken out of the IEEE 802.3ab/D6.0 dated March 25,
+	 * 1999, describes these PAUSE resolution bits and how flow
+	 * control is determined based upon these settings.
+	 * NOTE:  DC = Don't Care
+	 *
+	 *   LOCAL DEVICE  |   LINK PARTNER
+	 * PAUSE | ASM_DIR | PAUSE | ASM_DIR | NIC Resolution
+	 *-------|---------|-------|---------|--------------------
+	 *   0   |    0    |  DC   |   DC    | igc_fc_none
+	 *   0   |    1    |   0   |   DC    | igc_fc_none
+	 *   0   |    1    |   1   |    0    | igc_fc_none
+	 *   0   |    1    |   1   |    1    | igc_fc_tx_pause
+	 *   1   |    0    |   0   |   DC    | igc_fc_none
+	 *   1   |   DC    |   1   |   DC    | igc_fc_full
+	 *   1   |    1    |   0   |    0    | igc_fc_none
+	 *   1   |    1    |   0   |    1    | igc_fc_rx_pause
+	 *
+	 * Are both PAUSE bits set to 1?  If so, this implies
+	 * Symmetric Flow Control is enabled at both ends.  The
+	 * ASM_DIR bits are irrelevant per the spec.
+	 *
+	 * For Symmetric Flow Control:
+	 *
+	 *   LOCAL DEVICE  |   LINK PARTNER
+	 * PAUSE | ASM_DIR | PAUSE | ASM_DIR | Result
+	 *-------|---------|-------|---------|--------------------
+	 *   1   |   DC    |   1   |   DC    | IGC_fc_full
+	 *
+	 */
+	if ((mii_nway_adv_reg & NWAY_AR_PAUSE) &&
+	    (mii_nway_lp_ability_reg & NWAY_LPAR_PAUSE)) {
+		/* Now we need to check if the user selected RX ONLY
+		 * of pause frames.  In this case, we had to advertise
+		 * FULL flow control because we could not advertise RX
+		 * ONLY. Hence, we must now check to see if we need to
+		 * turn OFF  the TRANSMISSION of PAUSE frames.
 		 */
-		else if (!(mii_nway_adv_reg & NWAY_AR_PAUSE) &&
-			 (mii_nway_adv_reg & NWAY_AR_ASM_DIR) &&
-			 (mii_nway_lp_ability_reg & NWAY_LPAR_PAUSE) &&
-			 (mii_nway_lp_ability_reg & NWAY_LPAR_ASM_DIR)) {
-			hw->fc.current_mode = igc_fc_tx_pause;
-			hw_dbg("Flow Control = TX PAUSE frames only.\n");
-		}
-		/* For transmitting PAUSE frames ONLY.
-		 *
-		 *   LOCAL DEVICE  |   LINK PARTNER
-		 * PAUSE | ASM_DIR | PAUSE | ASM_DIR | Result
-		 *-------|---------|-------|---------|--------------------
-		 *   1   |    1    |   0   |    1    | igc_fc_rx_pause
-		 */
-		else if ((mii_nway_adv_reg & NWAY_AR_PAUSE) &&
-			 (mii_nway_adv_reg & NWAY_AR_ASM_DIR) &&
-			 !(mii_nway_lp_ability_reg & NWAY_LPAR_PAUSE) &&
-			 (mii_nway_lp_ability_reg & NWAY_LPAR_ASM_DIR)) {
-			hw->fc.current_mode = igc_fc_rx_pause;
-			hw_dbg("Flow Control = RX PAUSE frames only.\n");
-		}
-		/* Per the IEEE spec, at this point flow control should be
-		 * disabled.  However, we want to consider that we could
-		 * be connected to a legacy switch that doesn't advertise
-		 * desired flow control, but can be forced on the link
-		 * partner.  So if we advertised no flow control, that is
-		 * what we will resolve to.  If we advertised some kind of
-		 * receive capability (Rx Pause Only or Full Flow Control)
-		 * and the link partner advertised none, we will configure
-		 * ourselves to enable Rx Flow Control only.  We can do
-		 * this safely for two reasons:  If the link partner really
-		 * didn't want flow control enabled, and we enable Rx, no
-		 * harm done since we won't be receiving any PAUSE frames
-		 * anyway.  If the intent on the link partner was to have
-		 * flow control enabled, then by us enabling RX only, we
-		 * can at least receive pause frames and process them.
-		 * This is a good idea because in most cases, since we are
-		 * predominantly a server NIC, more times than not we will
-		 * be asked to delay transmission of packets than asking
-		 * our link partner to pause transmission of frames.
-		 */
-		else if ((hw->fc.requested_mode == igc_fc_none) ||
-			 (hw->fc.requested_mode == igc_fc_tx_pause) ||
-			 (hw->fc.strict_ieee)) {
-			hw->fc.current_mode = igc_fc_none;
-			hw_dbg("Flow Control = NONE.\n");
+		if (hw->fc.requested_mode == igc_fc_full) {
+			hw->fc.current_mode = igc_fc_full;
+			hw_dbg("Flow Control = FULL.\n");
 		} else {
 			hw->fc.current_mode = igc_fc_rx_pause;
 			hw_dbg("Flow Control = RX PAUSE frames only.\n");
 		}
+	}
 
-		/* Now we need to do one last check...  If we auto-
-		 * negotiated to HALF DUPLEX, flow control should not be
-		 * enabled per IEEE 802.3 spec.
-		 */
-		ret_val = hw->mac.ops.get_speed_and_duplex(hw, &speed, &duplex);
-		if (ret_val) {
-			hw_dbg("Error getting link speed and duplex\n");
-			goto out;
-		}
+	/* For receiving PAUSE frames ONLY.
+	 *
+	 *   LOCAL DEVICE  |   LINK PARTNER
+	 * PAUSE | ASM_DIR | PAUSE | ASM_DIR | Result
+	 *-------|---------|-------|---------|--------------------
+	 *   0   |    1    |   1   |    1    | igc_fc_tx_pause
+	 */
+	else if (!(mii_nway_adv_reg & NWAY_AR_PAUSE) &&
+		 (mii_nway_adv_reg & NWAY_AR_ASM_DIR) &&
+		 (mii_nway_lp_ability_reg & NWAY_LPAR_PAUSE) &&
+		 (mii_nway_lp_ability_reg & NWAY_LPAR_ASM_DIR)) {
+		hw->fc.current_mode = igc_fc_tx_pause;
+		hw_dbg("Flow Control = TX PAUSE frames only.\n");
+	}
+	/* For transmitting PAUSE frames ONLY.
+	 *
+	 *   LOCAL DEVICE  |   LINK PARTNER
+	 * PAUSE | ASM_DIR | PAUSE | ASM_DIR | Result
+	 *-------|---------|-------|---------|--------------------
+	 *   1   |    1    |   0   |    1    | igc_fc_rx_pause
+	 */
+	else if ((mii_nway_adv_reg & NWAY_AR_PAUSE) &&
+		 (mii_nway_adv_reg & NWAY_AR_ASM_DIR) &&
+		 !(mii_nway_lp_ability_reg & NWAY_LPAR_PAUSE) &&
+		 (mii_nway_lp_ability_reg & NWAY_LPAR_ASM_DIR)) {
+		hw->fc.current_mode = igc_fc_rx_pause;
+		hw_dbg("Flow Control = RX PAUSE frames only.\n");
+	}
+	/* Per the IEEE spec, at this point flow control should be
+	 * disabled.  However, we want to consider that we could
+	 * be connected to a legacy switch that doesn't advertise
+	 * desired flow control, but can be forced on the link
+	 * partner.  So if we advertised no flow control, that is
+	 * what we will resolve to.  If we advertised some kind of
+	 * receive capability (Rx Pause Only or Full Flow Control)
+	 * and the link partner advertised none, we will configure
+	 * ourselves to enable Rx Flow Control only.  We can do
+	 * this safely for two reasons:  If the link partner really
+	 * didn't want flow control enabled, and we enable Rx, no
+	 * harm done since we won't be receiving any PAUSE frames
+	 * anyway.  If the intent on the link partner was to have
+	 * flow control enabled, then by us enabling RX only, we
+	 * can at least receive pause frames and process them.
+	 * This is a good idea because in most cases, since we are
+	 * predominantly a server NIC, more times than not we will
+	 * be asked to delay transmission of packets than asking
+	 * our link partner to pause transmission of frames.
+	 */
+	else if ((hw->fc.requested_mode == igc_fc_none) ||
+		 (hw->fc.requested_mode == igc_fc_tx_pause) ||
+		 (hw->fc.strict_ieee)) {
+		hw->fc.current_mode = igc_fc_none;
+		hw_dbg("Flow Control = NONE.\n");
+	} else {
+		hw->fc.current_mode = igc_fc_rx_pause;
+		hw_dbg("Flow Control = RX PAUSE frames only.\n");
+	}
 
-		if (duplex == HALF_DUPLEX)
-			hw->fc.current_mode = igc_fc_none;
+	/* Now we need to do one last check...  If we auto-
+	 * negotiated to HALF DUPLEX, flow control should not be
+	 * enabled per IEEE 802.3 spec.
+	 */
+	ret_val = hw->mac.ops.get_speed_and_duplex(hw, &speed, &duplex);
+	if (ret_val) {
+		hw_dbg("Error getting link speed and duplex\n");
+		goto out;
+	}
 
-		/* Now we call a subroutine to actually force the MAC
-		 * controller to use the correct flow control settings.
-		 */
-		ret_val = igc_force_mac_fc(hw);
-		if (ret_val) {
-			hw_dbg("Error forcing flow control settings\n");
-			goto out;
-		}
+	if (duplex == HALF_DUPLEX)
+		hw->fc.current_mode = igc_fc_none;
+
+	/* Now we call a subroutine to actually force the MAC
+	 * controller to use the correct flow control settings.
+	 */
+	ret_val = igc_force_mac_fc(hw);
+	if (ret_val) {
+		hw_dbg("Error forcing flow control settings\n");
+		goto out;
 	}
 
 out:
-	return 0;
+	return ret_val;
 }
 
 /**
@@ -783,4 +764,108 @@ bool igc_enable_mng_pass_thru(struct igc_hw *hw)
 
 out:
 	return ret_val;
+}
+
+/**
+ *  igc_hash_mc_addr - Generate a multicast hash value
+ *  @hw: pointer to the HW structure
+ *  @mc_addr: pointer to a multicast address
+ *
+ *  Generates a multicast address hash value which is used to determine
+ *  the multicast filter table array address and new table value.  See
+ *  igc_mta_set()
+ **/
+static u32 igc_hash_mc_addr(struct igc_hw *hw, u8 *mc_addr)
+{
+	u32 hash_value, hash_mask;
+	u8 bit_shift = 0;
+
+	/* Register count multiplied by bits per register */
+	hash_mask = (hw->mac.mta_reg_count * 32) - 1;
+
+	/* For a mc_filter_type of 0, bit_shift is the number of left-shifts
+	 * where 0xFF would still fall within the hash mask.
+	 */
+	while (hash_mask >> bit_shift != 0xFF)
+		bit_shift++;
+
+	/* The portion of the address that is used for the hash table
+	 * is determined by the mc_filter_type setting.
+	 * The algorithm is such that there is a total of 8 bits of shifting.
+	 * The bit_shift for a mc_filter_type of 0 represents the number of
+	 * left-shifts where the MSB of mc_addr[5] would still fall within
+	 * the hash_mask.  Case 0 does this exactly.  Since there are a total
+	 * of 8 bits of shifting, then mc_addr[4] will shift right the
+	 * remaining number of bits. Thus 8 - bit_shift.  The rest of the
+	 * cases are a variation of this algorithm...essentially raising the
+	 * number of bits to shift mc_addr[5] left, while still keeping the
+	 * 8-bit shifting total.
+	 *
+	 * For example, given the following Destination MAC Address and an
+	 * MTA register count of 128 (thus a 4096-bit vector and 0xFFF mask),
+	 * we can see that the bit_shift for case 0 is 4.  These are the hash
+	 * values resulting from each mc_filter_type...
+	 * [0] [1] [2] [3] [4] [5]
+	 * 01  AA  00  12  34  56
+	 * LSB                 MSB
+	 *
+	 * case 0: hash_value = ((0x34 >> 4) | (0x56 << 4)) & 0xFFF = 0x563
+	 * case 1: hash_value = ((0x34 >> 3) | (0x56 << 5)) & 0xFFF = 0xAC6
+	 * case 2: hash_value = ((0x34 >> 2) | (0x56 << 6)) & 0xFFF = 0x163
+	 * case 3: hash_value = ((0x34 >> 0) | (0x56 << 8)) & 0xFFF = 0x634
+	 */
+	switch (hw->mac.mc_filter_type) {
+	default:
+	case 0:
+		break;
+	case 1:
+		bit_shift += 1;
+		break;
+	case 2:
+		bit_shift += 2;
+		break;
+	case 3:
+		bit_shift += 4;
+		break;
+	}
+
+	hash_value = hash_mask & (((mc_addr[4] >> (8 - bit_shift)) |
+				  (((u16)mc_addr[5]) << bit_shift)));
+
+	return hash_value;
+}
+
+/**
+ *  igc_update_mc_addr_list - Update Multicast addresses
+ *  @hw: pointer to the HW structure
+ *  @mc_addr_list: array of multicast addresses to program
+ *  @mc_addr_count: number of multicast addresses to program
+ *
+ *  Updates entire Multicast Table Array.
+ *  The caller must have a packed mc_addr_list of multicast addresses.
+ **/
+void igc_update_mc_addr_list(struct igc_hw *hw,
+			     u8 *mc_addr_list, u32 mc_addr_count)
+{
+	u32 hash_value, hash_bit, hash_reg;
+	int i;
+
+	/* clear mta_shadow */
+	memset(&hw->mac.mta_shadow, 0, sizeof(hw->mac.mta_shadow));
+
+	/* update mta_shadow from mc_addr_list */
+	for (i = 0; (u32)i < mc_addr_count; i++) {
+		hash_value = igc_hash_mc_addr(hw, mc_addr_list);
+
+		hash_reg = (hash_value >> 5) & (hw->mac.mta_reg_count - 1);
+		hash_bit = hash_value & 0x1F;
+
+		hw->mac.mta_shadow[hash_reg] |= BIT(hash_bit);
+		mc_addr_list += ETH_ALEN;
+	}
+
+	/* replace the entire MTA table */
+	for (i = hw->mac.mta_reg_count - 1; i >= 0; i--)
+		array_wr32(IGC_MTA, i, hw->mac.mta_shadow[i]);
+	wrfl();
 }

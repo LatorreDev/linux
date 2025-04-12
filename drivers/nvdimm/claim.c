@@ -4,6 +4,7 @@
  */
 #include <linux/device.h>
 #include <linux/sizes.h>
+#include <linux/badblocks.h>
 #include "nd-core.h"
 #include "pmem.h"
 #include "pfn.h"
@@ -53,24 +54,6 @@ bool __nd_attach_ndns(struct device *dev, struct nd_namespace_common *attach,
 	*_ndns = attach;
 	get_device(&attach->dev);
 	return true;
-}
-
-bool nd_attach_ndns(struct device *dev, struct nd_namespace_common *attach,
-		struct nd_namespace_common **_ndns)
-{
-	bool claimed;
-
-	nvdimm_bus_lock(&attach->dev);
-	claimed = __nd_attach_ndns(dev, attach, _ndns);
-	nvdimm_bus_unlock(&attach->dev);
-	return claimed;
-}
-
-static int namespace_match(struct device *dev, void *data)
-{
-	char *name = data;
-
-	return strcmp(name, dev_name(dev)) == 0;
 }
 
 static bool is_idle(struct device *dev, struct nd_namespace_common *ndns)
@@ -167,7 +150,7 @@ ssize_t nd_namespace_store(struct device *dev,
 		goto out;
 	}
 
-	found = device_find_child(dev->parent, name, namespace_match);
+	found = device_find_child_by_name(dev->parent, name);
 	if (!found) {
 		dev_dbg(dev, "'%s' not found under %s\n", name,
 				dev_name(dev->parent));
@@ -268,7 +251,7 @@ static int nsio_rw_bytes(struct nd_namespace_common *ndns,
 	if (rw == READ) {
 		if (unlikely(is_bad_pmem(&nsio->bb, sector, sz_align)))
 			return -EIO;
-		if (memcpy_mcsafe(buf, nsio->addr + offset, size) != 0)
+		if (copy_mc_to_kernel(buf, nsio->addr + offset, size) != 0)
 			return -EIO;
 		return 0;
 	}
@@ -300,15 +283,19 @@ static int nsio_rw_bytes(struct nd_namespace_common *ndns,
 	return rc;
 }
 
-int devm_nsio_enable(struct device *dev, struct nd_namespace_io *nsio)
+int devm_nsio_enable(struct device *dev, struct nd_namespace_io *nsio,
+		resource_size_t size)
 {
-	struct resource *res = &nsio->res;
 	struct nd_namespace_common *ndns = &nsio->common;
+	struct range range = {
+		.start = nsio->res.start,
+		.end = nsio->res.end,
+	};
 
-	nsio->size = resource_size(res);
-	if (!devm_request_mem_region(dev, res->start, resource_size(res),
+	nsio->size = size;
+	if (!devm_request_mem_region(dev, range.start, size,
 				dev_name(&ndns->dev))) {
-		dev_warn(dev, "could not reserve region %pR\n", res);
+		dev_warn(dev, "could not reserve region %pR\n", &nsio->res);
 		return -EBUSY;
 	}
 
@@ -316,14 +303,12 @@ int devm_nsio_enable(struct device *dev, struct nd_namespace_io *nsio)
 	if (devm_init_badblocks(dev, &nsio->bb))
 		return -ENOMEM;
 	nvdimm_badblocks_populate(to_nd_region(ndns->dev.parent), &nsio->bb,
-			&nsio->res);
+			&range);
 
-	nsio->addr = devm_memremap(dev, res->start, resource_size(res),
-			ARCH_MEMREMAP_PMEM);
+	nsio->addr = devm_memremap(dev, range.start, size, ARCH_MEMREMAP_PMEM);
 
 	return PTR_ERR_OR_ZERO(nsio->addr);
 }
-EXPORT_SYMBOL_GPL(devm_nsio_enable);
 
 void devm_nsio_disable(struct device *dev, struct nd_namespace_io *nsio)
 {
@@ -331,6 +316,5 @@ void devm_nsio_disable(struct device *dev, struct nd_namespace_io *nsio)
 
 	devm_memunmap(dev, nsio->addr);
 	devm_exit_badblocks(dev, &nsio->bb);
-	devm_release_mem_region(dev, res->start, resource_size(res));
+	devm_release_mem_region(dev, res->start, nsio->size);
 }
-EXPORT_SYMBOL_GPL(devm_nsio_disable);

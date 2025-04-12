@@ -22,7 +22,7 @@
 #include <linux/mmc/slot-gpio.h>
 
 #include <linux/sizes.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 #include "mvsdio.h"
 
@@ -464,7 +464,7 @@ static irqreturn_t mvsd_irq(int irq, void *dev)
 		struct mmc_command *cmd = mrq->cmd;
 		u32 err_status = 0;
 
-		del_timer(&host->timer);
+		timer_delete(&host->timer);
 		host->mrq = NULL;
 
 		host->intr_en &= MVSD_NOR_CARD_INT;
@@ -696,17 +696,15 @@ static int mvsd_probe(struct platform_device *pdev)
 	struct mmc_host *mmc = NULL;
 	struct mvsd_host *host = NULL;
 	const struct mbus_dram_target_info *dram;
-	struct resource *r;
 	int ret, irq;
 
 	if (!np) {
 		dev_err(&pdev->dev, "no DT node\n");
 		return -ENODEV;
 	}
-	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	irq = platform_get_irq(pdev, 0);
-	if (!r || irq < 0)
-		return -ENXIO;
+	if (irq < 0)
+		return irq;
 
 	mmc = mmc_alloc_host(sizeof(struct mvsd_host), &pdev->dev);
 	if (!mmc) {
@@ -754,11 +752,9 @@ static int mvsd_probe(struct platform_device *pdev)
 	if (maxfreq)
 		mmc->f_max = maxfreq;
 
-	mmc->caps |= MMC_CAP_ERASE;
-
 	spin_lock_init(&host->lock);
 
-	host->base = devm_ioremap_resource(&pdev->dev, r);
+	host->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(host->base)) {
 		ret = PTR_ERR(host->base);
 		goto out;
@@ -800,21 +796,19 @@ out:
 	return ret;
 }
 
-static int mvsd_remove(struct platform_device *pdev)
+static void mvsd_remove(struct platform_device *pdev)
 {
 	struct mmc_host *mmc = platform_get_drvdata(pdev);
 
 	struct mvsd_host *host = mmc_priv(mmc);
 
 	mmc_remove_host(mmc);
-	del_timer_sync(&host->timer);
+	timer_delete_sync(&host->timer);
 	mvsd_power_down(host);
 
 	if (!IS_ERR(host->clk))
 		clk_disable_unprepare(host->clk);
 	mmc_free_host(mmc);
-
-	return 0;
 }
 
 static const struct of_device_id mvsdio_dt_ids[] = {
@@ -828,6 +822,7 @@ static struct platform_driver mvsd_driver = {
 	.remove		= mvsd_remove,
 	.driver		= {
 		.name	= DRIVER_NAME,
+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 		.of_match_table = mvsdio_dt_ids,
 	},
 };

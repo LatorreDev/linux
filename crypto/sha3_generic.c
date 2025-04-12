@@ -3,7 +3,7 @@
  * Cryptographic API.
  *
  * SHA-3, as specified in
- * http://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf
+ * https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf
  *
  * SHA-3 code by Jeff Garzik <jeff@garzik.org>
  *               Ard Biesheuvel <ard.biesheuvel@linaro.org>
@@ -13,7 +13,7 @@
 #include <linux/module.h>
 #include <linux/types.h>
 #include <crypto/sha3.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 /*
  * On some 32-bit architectures (h8300), GCC ends up using

@@ -225,10 +225,10 @@ static int elo_command_10(struct elo *elo, unsigned char *packet)
 
 	mutex_lock(&elo->cmd_mutex);
 
-	serio_pause_rx(elo->serio);
-	elo->expected_packet = toupper(packet[0]);
-	init_completion(&elo->cmd_done);
-	serio_continue_rx(elo->serio);
+	scoped_guard(serio_pause_rx, elo->serio) {
+		elo->expected_packet = toupper(packet[0]);
+		init_completion(&elo->cmd_done);
+	}
 
 	if (serio_write(elo->serio, ELO10_LEAD_BYTE))
 		goto out;
@@ -307,7 +307,7 @@ static int elo_connect(struct serio *serio, struct serio_driver *drv)
 	struct input_dev *input_dev;
 	int err;
 
-	elo = kzalloc(sizeof(struct elo), GFP_KERNEL);
+	elo = kzalloc(sizeof(*elo), GFP_KERNEL);
 	input_dev = input_allocate_device();
 	if (!elo || !input_dev) {
 		err = -ENOMEM;
@@ -341,14 +341,16 @@ static int elo_connect(struct serio *serio, struct serio_driver *drv)
 	switch (elo->id) {
 
 	case 0: /* 10-byte protocol */
-		if (elo_setup_10(elo))
+		if (elo_setup_10(elo)) {
+			err = -EIO;
 			goto fail3;
+		}
 
 		break;
 
 	case 1: /* 6-byte protocol */
 		input_set_abs_params(input_dev, ABS_PRESSURE, 0, 15, 0, 0);
-		/* fall through */
+		fallthrough;
 
 	case 2: /* 4-byte protocol */
 		input_set_abs_params(input_dev, ABS_X, 96, 4000, 0, 0);

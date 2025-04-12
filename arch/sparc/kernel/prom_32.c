@@ -28,9 +28,7 @@ void * __init prom_early_alloc(unsigned long size)
 {
 	void *ret;
 
-	ret = memblock_alloc(size, SMP_CACHE_BYTES);
-	if (!ret)
-		panic("%s: Failed to allocate %lu bytes\n", __func__, size);
+	ret = memblock_alloc_or_panic(size, SMP_CACHE_BYTES);
 
 	prom_early_allocated += size;
 
@@ -132,12 +130,13 @@ static void __init ebus_path_component(struct device_node *dp, char *tmp_buf)
 		regs->which_io, regs->phys_addr);
 }
 
-/* "name:vendor:device@irq,addrlo" */
+/* "name@irq,addrlo" */
 static void __init ambapp_path_component(struct device_node *dp, char *tmp_buf)
 {
 	const char *name = of_get_property(dp, "name", NULL);
 	struct amba_prom_registers *regs;
-	unsigned int *intr, *device, *vendor, reg0;
+	unsigned int *intr;
+	unsigned int reg0;
 	struct property *prop;
 	int interrupt = 0;
 
@@ -159,18 +158,7 @@ static void __init ambapp_path_component(struct device_node *dp, char *tmp_buf)
 	else
 		intr = prop->value;
 
-	prop = of_find_property(dp, "vendor", NULL);
-	if (!prop)
-		return;
-	vendor = prop->value;
-	prop = of_find_property(dp, "device", NULL);
-	if (!prop)
-		return;
-	device = prop->value;
-
-	sprintf(tmp_buf, "%s:%d:%d@%x,%x",
-		name, *vendor, *device,
-		*intr, reg0);
+	sprintf(tmp_buf, "%s@%x,%x", name, *intr, reg0);
 }
 
 static void __init __build_path_component(struct device_node *dp, char *tmp_buf)
@@ -234,7 +222,7 @@ void __init of_console_init(void)
 
 		case PROMDEV_TTYB:
 			skip = 1;
-			/* FALLTHRU */
+			fallthrough;
 
 		case PROMDEV_TTYA:
 			type = "serial";

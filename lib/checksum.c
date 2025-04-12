@@ -34,15 +34,6 @@
 #include <asm/byteorder.h>
 
 #ifndef do_csum
-static inline unsigned short from32to16(unsigned int x)
-{
-	/* add up 16-bit and 16-bit for 16+c bit */
-	x = (x & 0xffff) + (x >> 16);
-	/* add up carry.. */
-	x = (x & 0xffff) + (x >> 16);
-	return x;
-}
-
 static unsigned int do_csum(const unsigned char *buff, int len)
 {
 	int odd;
@@ -90,7 +81,7 @@ static unsigned int do_csum(const unsigned char *buff, int len)
 #else
 		result += (*buff << 8);
 #endif
-	result = from32to16(result);
+	result = csum_from32to16(result);
 	if (odd)
 		result = ((result >> 8) & 0xff) | ((result & 0xff) << 8);
 out:
@@ -144,37 +135,6 @@ __sum16 ip_compute_csum(const void *buff, int len)
 	return (__force __sum16)~do_csum(buff, len);
 }
 EXPORT_SYMBOL(ip_compute_csum);
-
-/*
- * copy from fs while checksumming, otherwise like csum_partial
- */
-__wsum
-csum_partial_copy_from_user(const void __user *src, void *dst, int len,
-						__wsum sum, int *csum_err)
-{
-	int missing;
-
-	missing = __copy_from_user(dst, src, len);
-	if (missing) {
-		memset(dst + len - missing, 0, missing);
-		*csum_err = -EFAULT;
-	} else
-		*csum_err = 0;
-
-	return csum_partial(dst, len, sum);
-}
-EXPORT_SYMBOL(csum_partial_copy_from_user);
-
-/*
- * copy from ds while checksumming, otherwise like csum_partial
- */
-__wsum
-csum_partial_copy(const void *src, void *dst, int len, __wsum sum)
-{
-	memcpy(dst, src, len);
-	return csum_partial(dst, len, sum);
-}
-EXPORT_SYMBOL(csum_partial_copy);
 
 #ifndef csum_tcpudp_nofold
 static inline u32 from64to32(u64 x)

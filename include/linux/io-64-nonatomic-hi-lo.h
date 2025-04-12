@@ -57,7 +57,7 @@ static inline void hi_lo_writeq_relaxed(__u64 val, volatile void __iomem *addr)
 
 #ifndef ioread64_hi_lo
 #define ioread64_hi_lo ioread64_hi_lo
-static inline u64 ioread64_hi_lo(void __iomem *addr)
+static inline u64 ioread64_hi_lo(const void __iomem *addr)
 {
 	u32 low, high;
 
@@ -79,7 +79,7 @@ static inline void iowrite64_hi_lo(u64 val, void __iomem *addr)
 
 #ifndef ioread64be_hi_lo
 #define ioread64be_hi_lo ioread64be_hi_lo
-static inline u64 ioread64be_hi_lo(void __iomem *addr)
+static inline u64 ioread64be_hi_lo(const void __iomem *addr)
 {
 	u32 low, high;
 
@@ -101,22 +101,38 @@ static inline void iowrite64be_hi_lo(u64 val, void __iomem *addr)
 
 #ifndef ioread64
 #define ioread64_is_nonatomic
+#if defined(CONFIG_GENERIC_IOMAP) && defined(CONFIG_64BIT)
+#define ioread64 __ioread64_hi_lo
+#else
 #define ioread64 ioread64_hi_lo
+#endif
 #endif
 
 #ifndef iowrite64
 #define iowrite64_is_nonatomic
+#if defined(CONFIG_GENERIC_IOMAP) && defined(CONFIG_64BIT)
+#define iowrite64 __iowrite64_hi_lo
+#else
 #define iowrite64 iowrite64_hi_lo
+#endif
 #endif
 
 #ifndef ioread64be
 #define ioread64be_is_nonatomic
+#if defined(CONFIG_GENERIC_IOMAP) && defined(CONFIG_64BIT)
+#define ioread64be __ioread64be_hi_lo
+#else
 #define ioread64be ioread64be_hi_lo
+#endif
 #endif
 
 #ifndef iowrite64be
 #define iowrite64be_is_nonatomic
+#if defined(CONFIG_GENERIC_IOMAP) && defined(CONFIG_64BIT)
+#define iowrite64be __iowrite64be_hi_lo
+#else
 #define iowrite64be iowrite64be_hi_lo
+#endif
 #endif
 
 #endif	/* _LINUX_IO_64_NONATOMIC_HI_LO_H_ */

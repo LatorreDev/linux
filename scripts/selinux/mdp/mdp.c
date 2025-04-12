@@ -11,10 +11,6 @@
  * Authors: Serge E. Hallyn <serue@us.ibm.com>
  */
 
-
-/* NOTE: we really do want to use the kernel headers here */
-#define __EXPORTED_HEADERS__
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -35,6 +31,9 @@ struct security_class_mapping {
 
 #include "classmap.h"
 #include "initial_sid_to_string.h"
+#include "policycap_names.h"
+
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 int main(int argc, char *argv[])
 {
@@ -67,13 +66,19 @@ int main(int argc, char *argv[])
 
 	initial_sid_to_string_len = sizeof(initial_sid_to_string) / sizeof (char *);
 	/* print out the sids */
-	for (i = 1; i < initial_sid_to_string_len; i++)
-		fprintf(fout, "sid %s\n", initial_sid_to_string[i]);
+	for (i = 1; i < initial_sid_to_string_len; i++) {
+		const char *name = initial_sid_to_string[i];
+
+		if (name)
+			fprintf(fout, "sid %s\n", name);
+		else
+			fprintf(fout, "sid unused%d\n", i);
+	}
 	fprintf(fout, "\n");
 
 	/* print out the class permissions */
 	for (i = 0; secclass_map[i].name; i++) {
-		struct security_class_mapping *map = &secclass_map[i];
+		const struct security_class_mapping *map = &secclass_map[i];
 		fprintf(fout, "class %s\n", map->name);
 		fprintf(fout, "{\n");
 		for (j = 0; map->perms[j]; j++)
@@ -94,7 +99,7 @@ int main(int argc, char *argv[])
 #define SYSTEMLOW "s0"
 #define SYSTEMHIGH "s1:c0.c1"
 		for (i = 0; secclass_map[i].name; i++) {
-			struct security_class_mapping *map = &secclass_map[i];
+			const struct security_class_mapping *map = &secclass_map[i];
 
 			fprintf(fout, "mlsconstrain %s {\n", map->name);
 			for (j = 0; map->perms[j]; j++)
@@ -108,6 +113,10 @@ int main(int argc, char *argv[])
 			fprintf(fout, "} (l2 eq h2 and h1 dom h2);\n\n");
 		}
 	}
+
+	/* enable all policy capabilities */
+	for (i = 0; i < ARRAY_SIZE(selinux_policycap_names); i++)
+		fprintf(fout, "policycap %s;\n", selinux_policycap_names[i]);
 
 	/* types, roles, and allows */
 	fprintf(fout, "type base_t;\n");
@@ -126,9 +135,16 @@ int main(int argc, char *argv[])
 #define OBJUSERROLETYPE "user_u:object_r:base_t"
 
 	/* default sids */
-	for (i = 1; i < initial_sid_to_string_len; i++)
-		fprintf(fout, "sid %s " SUBJUSERROLETYPE "%s\n",
-			initial_sid_to_string[i], mls ? ":" SYSTEMLOW : "");
+	for (i = 1; i < initial_sid_to_string_len; i++) {
+		const char *name = initial_sid_to_string[i];
+
+		if (name)
+			fprintf(fout, "sid %s ", name);
+		else
+			fprintf(fout, "sid unused%d\n", i);
+		fprintf(fout, SUBJUSERROLETYPE "%s\n",
+			mls ? ":" SYSTEMLOW : "");
+	}
 	fprintf(fout, "\n");
 
 #define FS_USE(behavior, fstype)			    \
@@ -150,9 +166,6 @@ int main(int argc, char *argv[])
 #endif
 #ifdef CONFIG_JFS_SECURITY
 	FS_USE("xattr", "jfs");
-#endif
-#ifdef CONFIG_REISERFS_FS_SECURITY
-	FS_USE("xattr", "reiserfs");
 #endif
 #ifdef CONFIG_JFFS2_FS_SECURITY
 	FS_USE("xattr", "jffs2");

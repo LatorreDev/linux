@@ -9,7 +9,7 @@
 #include <linux/types.h>
 #include <linux/netdevice.h>
 #include <linux/export.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 #include <net/mac80211.h>
 #include "driver-ops.h"
@@ -263,9 +263,21 @@ int ieee80211_tkip_decrypt_data(struct arc4_ctx *ctx,
 	if ((keyid >> 6) != key->conf.keyidx)
 		return TKIP_DECRYPT_INVALID_KEYIDX;
 
-	if (rx_ctx->ctx.state != TKIP_STATE_NOT_INIT &&
-	    (iv32 < rx_ctx->iv32 ||
-	     (iv32 == rx_ctx->iv32 && iv16 <= rx_ctx->iv16)))
+	/* Reject replays if the received TSC is smaller than or equal to the
+	 * last received value in a valid message, but with an exception for
+	 * the case where a new key has been set and no valid frame using that
+	 * key has yet received and the local RSC was initialized to 0. This
+	 * exception allows the very first frame sent by the transmitter to be
+	 * accepted even if that transmitter were to use TSC 0 (IEEE 802.11
+	 * described TSC to be initialized to 1 whenever a new key is taken into
+	 * use).
+	 */
+	if (iv32 < rx_ctx->iv32 ||
+	    (iv32 == rx_ctx->iv32 &&
+	     (iv16 < rx_ctx->iv16 ||
+	      (iv16 == rx_ctx->iv16 &&
+	       (rx_ctx->iv32 || rx_ctx->iv16 ||
+		rx_ctx->ctx.state != TKIP_STATE_NOT_INIT)))))
 		return TKIP_DECRYPT_REPLAY;
 
 	if (only_iv) {
@@ -301,7 +313,7 @@ int ieee80211_tkip_decrypt_data(struct arc4_ctx *ctx,
 		 * Record previously received IV, will be copied into the
 		 * key information after MIC verification. It is possible
 		 * that we don't catch replays of fragments but that's ok
-		 * because the Michael MIC verication will then fail.
+		 * because the Michael MIC verification will then fail.
 		 */
 		*out_iv32 = iv32;
 		*out_iv16 = iv16;

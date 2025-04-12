@@ -101,8 +101,9 @@
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/of.h>
+#include <linux/of_address.h>
+#include <linux/of_irq.h>
 #include <asm/io.h>
-#include <asm/prom.h>
 #include <asm/mpc52xx.h>
 
 /* HW IRQ mapping */
@@ -340,7 +341,7 @@ static int mpc52xx_irqhost_map(struct irq_domain *h, unsigned int virq,
 {
 	int l1irq;
 	int l2irq;
-	struct irq_chip *uninitialized_var(irqchip);
+	struct irq_chip *irqchip;
 	void *hndlr;
 	int type;
 	u32 reg;
@@ -452,7 +453,7 @@ void __init mpc52xx_init_irq(void)
 	if (!mpc52xx_irqhost)
 		panic(__FILE__ ": Cannot allocate the IRQ host\n");
 
-	irq_set_default_host(mpc52xx_irqhost);
+	irq_set_default_domain(mpc52xx_irqhost);
 
 	pr_info("MPC52xx PIC is up and running!\n");
 }

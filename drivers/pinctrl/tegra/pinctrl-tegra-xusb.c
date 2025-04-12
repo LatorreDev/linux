@@ -8,11 +8,14 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/phy/phy.h>
-#include <linux/pinctrl/pinctrl.h>
-#include <linux/pinctrl/pinmux.h>
 #include <linux/platform_device.h>
 #include <linux/reset.h>
+#include <linux/seq_file.h>
 #include <linux/slab.h>
+
+#include <linux/pinctrl/pinconf.h>
+#include <linux/pinctrl/pinctrl.h>
+#include <linux/pinctrl/pinmux.h>
 
 #include <dt-bindings/pinctrl/pinctrl-tegra-xusb.h>
 
@@ -123,7 +126,7 @@ static int tegra_xusb_padctl_get_group_pins(struct pinctrl_dev *pinctrl,
 					    unsigned *num_pins)
 {
 	/*
-	 * For the tegra-xusb pad controller groups are synonomous
+	 * For the tegra-xusb pad controller groups are synonymous
 	 * with lanes/pins and there is always one lane/pin per group.
 	 */
 	*pins = &pinctrl->desc->pins[group].number;
@@ -235,20 +238,17 @@ static int tegra_xusb_padctl_dt_node_to_map(struct pinctrl_dev *pinctrl,
 {
 	struct tegra_xusb_padctl *padctl = pinctrl_dev_get_drvdata(pinctrl);
 	unsigned int reserved_maps = 0;
-	struct device_node *np;
 	int err;
 
 	*num_maps = 0;
 	*maps = NULL;
 
-	for_each_child_of_node(parent, np) {
+	for_each_child_of_node_scoped(parent, np) {
 		err = tegra_xusb_padctl_parse_subnode(padctl, np, maps,
 						      &reserved_maps,
 						      num_maps);
-		if (err < 0) {
-			of_node_put(np);
+		if (err < 0)
 			return err;
-		}
 	}
 
 	return 0;
@@ -682,7 +682,7 @@ static const struct phy_ops sata_phy_ops = {
 };
 
 static struct phy *tegra_xusb_padctl_xlate(struct device *dev,
-					   struct of_phandle_args *args)
+					   const struct of_phandle_args *args)
 {
 	struct tegra_xusb_padctl *padctl = dev_get_drvdata(dev);
 	unsigned int index = args->args[0];
@@ -873,7 +873,6 @@ int tegra_xusb_padctl_legacy_probe(struct platform_device *pdev)
 {
 	struct tegra_xusb_padctl *padctl;
 	const struct of_device_id *match;
-	struct resource *res;
 	struct phy *phy;
 	int err;
 
@@ -885,11 +884,16 @@ int tegra_xusb_padctl_legacy_probe(struct platform_device *pdev)
 	mutex_init(&padctl->lock);
 	padctl->dev = &pdev->dev;
 
+	/*
+	 * Note that we can't replace this by of_device_get_match_data()
+	 * because we need the separate matching table for this legacy code on
+	 * Tegra124. of_device_get_match_data() would attempt to use the table
+	 * from the updated driver and fail.
+	 */
 	match = of_match_node(tegra_xusb_padctl_of_match, pdev->dev.of_node);
 	padctl->soc = match->data;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	padctl->regs = devm_ioremap_resource(&pdev->dev, res);
+	padctl->regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(padctl->regs))
 		return PTR_ERR(padctl->regs);
 

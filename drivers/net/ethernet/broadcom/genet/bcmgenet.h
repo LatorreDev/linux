@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2014-2017 Broadcom
+ * Copyright (c) 2014-2025 Broadcom
  */
 
 #ifndef __BCMGENET_H__
@@ -14,6 +14,12 @@
 #include <linux/if_vlan.h>
 #include <linux/phy.h>
 #include <linux/dim.h>
+#include <linux/ethtool.h>
+
+#include "../unimac.h"
+
+/* Maximum number of hardware queues, downsized if needed */
+#define GENET_MAX_MQ_CNT	4
 
 /* total number of Buffer Descriptors, same for Rx/Tx */
 #define TOTAL_DESC				256
@@ -31,6 +37,7 @@
 #define DMA_MAX_BURST_LENGTH    0x10
 
 /* misc. configuration */
+#define MAX_NUM_OF_FS_RULES		16
 #define CLEAR_ALL_HFB			0xFF
 #define DMA_FC_THRESH_HI		(TOTAL_DESC >> 4)
 #define DMA_FC_THRESH_LO		5
@@ -144,64 +151,9 @@ struct bcmgenet_mib_counters {
 	u32	alloc_rx_buff_failed;
 	u32	rx_dma_failed;
 	u32	tx_dma_failed;
+	u32	tx_realloc_tsb;
+	u32	tx_realloc_tsb_failed;
 };
-
-#define UMAC_HD_BKP_CTRL		0x004
-#define	 HD_FC_EN			(1 << 0)
-#define  HD_FC_BKOFF_OK			(1 << 1)
-#define  IPG_CONFIG_RX_SHIFT		2
-#define  IPG_CONFIG_RX_MASK		0x1F
-
-#define UMAC_CMD			0x008
-#define  CMD_TX_EN			(1 << 0)
-#define  CMD_RX_EN			(1 << 1)
-#define  UMAC_SPEED_10			0
-#define  UMAC_SPEED_100			1
-#define  UMAC_SPEED_1000		2
-#define  UMAC_SPEED_2500		3
-#define  CMD_SPEED_SHIFT		2
-#define  CMD_SPEED_MASK			3
-#define  CMD_PROMISC			(1 << 4)
-#define  CMD_PAD_EN			(1 << 5)
-#define  CMD_CRC_FWD			(1 << 6)
-#define  CMD_PAUSE_FWD			(1 << 7)
-#define  CMD_RX_PAUSE_IGNORE		(1 << 8)
-#define  CMD_TX_ADDR_INS		(1 << 9)
-#define  CMD_HD_EN			(1 << 10)
-#define  CMD_SW_RESET			(1 << 13)
-#define  CMD_LCL_LOOP_EN		(1 << 15)
-#define  CMD_AUTO_CONFIG		(1 << 22)
-#define  CMD_CNTL_FRM_EN		(1 << 23)
-#define  CMD_NO_LEN_CHK			(1 << 24)
-#define  CMD_RMT_LOOP_EN		(1 << 25)
-#define  CMD_PRBL_EN			(1 << 27)
-#define  CMD_TX_PAUSE_IGNORE		(1 << 28)
-#define  CMD_TX_RX_EN			(1 << 29)
-#define  CMD_RUNT_FILTER_DIS		(1 << 30)
-
-#define UMAC_MAC0			0x00C
-#define UMAC_MAC1			0x010
-#define UMAC_MAX_FRAME_LEN		0x014
-
-#define UMAC_MODE			0x44
-#define  MODE_LINK_STATUS		(1 << 5)
-
-#define UMAC_EEE_CTRL			0x064
-#define  EN_LPI_RX_PAUSE		(1 << 0)
-#define  EN_LPI_TX_PFC			(1 << 1)
-#define  EN_LPI_TX_PAUSE		(1 << 2)
-#define  EEE_EN				(1 << 3)
-#define  RX_FIFO_CHECK			(1 << 4)
-#define  EEE_TX_CLK_DIS			(1 << 5)
-#define  DIS_EEE_10M			(1 << 6)
-#define  LP_IDLE_PREDICTION_MODE	(1 << 7)
-
-#define UMAC_EEE_LPI_TIMER		0x068
-#define UMAC_EEE_WAKE_TIMER		0x06C
-#define UMAC_EEE_REF_COUNT		0x070
-#define  EEE_REFERENCE_COUNT_MASK	0xffff
-
-#define UMAC_TX_FLUSH			0x334
 
 #define UMAC_MIB_START			0x400
 
@@ -251,6 +203,7 @@ struct bcmgenet_mib_counters {
 #define RBUF_CHK_CTRL			0x14
 #define  RBUF_RXCHK_EN			(1 << 0)
 #define  RBUF_SKIP_FCS			(1 << 4)
+#define  RBUF_L3_PARSE_DIS		(1 << 5)
 
 #define RBUF_ENERGY_CTRL		0x9c
 #define  RBUF_EEE_EN			(1 << 0)
@@ -270,6 +223,7 @@ struct bcmgenet_mib_counters {
 #define  RBUF_FLTR_LEN_SHIFT		8
 
 #define TBUF_CTRL			0x00
+#define  TBUF_64B_EN			(1 << 0)
 #define TBUF_BP_MC			0x0C
 #define TBUF_ENERGY_CTRL		0x14
 #define  TBUF_EEE_EN			(1 << 0)
@@ -306,6 +260,8 @@ struct bcmgenet_mib_counters {
 #define UMAC_IRQ_HFB_SM			(1 << 10)
 #define UMAC_IRQ_HFB_MM			(1 << 11)
 #define UMAC_IRQ_MPD_R			(1 << 12)
+#define UMAC_IRQ_WAKE_EVENT		(UMAC_IRQ_HFB_SM | UMAC_IRQ_HFB_MM | \
+					 UMAC_IRQ_MPD_R)
 #define UMAC_IRQ_RXDMA_MBDONE		(1 << 13)
 #define UMAC_IRQ_RXDMA_PDONE		(1 << 14)
 #define UMAC_IRQ_RXDMA_BDONE		(1 << 15)
@@ -318,6 +274,8 @@ struct bcmgenet_mib_counters {
 /* Only valid for GENETv3+ */
 #define UMAC_IRQ_MDIO_DONE		(1 << 23)
 #define UMAC_IRQ_MDIO_ERROR		(1 << 24)
+#define UMAC_IRQ_MDIO_EVENT		(UMAC_IRQ_MDIO_DONE | \
+					 UMAC_IRQ_MDIO_ERROR)
 
 /* INTRL2 instance 1 definitions */
 #define UMAC_IRQ1_TX_INTR_MASK		0xFFFF
@@ -376,6 +334,7 @@ struct bcmgenet_mib_counters {
 #define  EXT_CFG_IDDQ_BIAS		(1 << 0)
 #define  EXT_CFG_PWR_DOWN		(1 << 1)
 #define  EXT_CK25_DIS			(1 << 4)
+#define  EXT_CFG_IDDQ_GLOBAL_PWR	(1 << 3)
 #define  EXT_GPHY_RESET			(1 << 5)
 
 /* DMA rings size */
@@ -522,6 +481,7 @@ enum bcmgenet_version {
 #define GENET_HAS_EXT		(1 << 1)
 #define GENET_HAS_MDIO_INTR	(1 << 2)
 #define GENET_HAS_MOCA_LINK_DET	(1 << 3)
+#define GENET_HAS_EPHY_16NM	(1 << 4)
 
 /* BCMGENET hardware parameters, keep this structure nicely aligned
  * since it is going to be used in hot paths
@@ -542,7 +502,6 @@ struct bcmgenet_hw_params {
 	u32		rdma_offset;
 	u32		tdma_offset;
 	u32		words_per_bd;
-	u32		flags;
 };
 
 struct bcmgenet_skb_cb {
@@ -559,7 +518,6 @@ struct bcmgenet_tx_ring {
 	unsigned long	packets;
 	unsigned long	bytes;
 	unsigned int	index;		/* ring index */
-	unsigned int	queue;		/* queue index */
 	struct enet_cb	*cbs;		/* tx ring buffer control block*/
 	unsigned int	size;		/* size of each tx ring */
 	unsigned int    clean_ptr;      /* Tx ring clean pointer */
@@ -569,8 +527,6 @@ struct bcmgenet_tx_ring {
 	unsigned int	prod_index;	/* Tx ring producer index SW copy */
 	unsigned int	cb_ptr;		/* Tx ring initial CB ptr */
 	unsigned int	end_ptr;	/* Tx ring end CB ptr */
-	void (*int_enable)(struct bcmgenet_tx_ring *);
-	void (*int_disable)(struct bcmgenet_tx_ring *);
 	struct bcmgenet_priv *priv;
 };
 
@@ -599,14 +555,26 @@ struct bcmgenet_rx_ring {
 	struct bcmgenet_net_dim dim;
 	u32		rx_max_coalesced_frames;
 	u32		rx_coalesce_usecs;
-	void (*int_enable)(struct bcmgenet_rx_ring *);
-	void (*int_disable)(struct bcmgenet_rx_ring *);
 	struct bcmgenet_priv *priv;
+};
+
+enum bcmgenet_rxnfc_state {
+	BCMGENET_RXNFC_STATE_UNUSED = 0,
+	BCMGENET_RXNFC_STATE_DISABLED,
+	BCMGENET_RXNFC_STATE_ENABLED
+};
+
+struct bcmgenet_rxnfc_rule {
+	struct	list_head list;
+	struct ethtool_rx_flow_spec	fs;
+	enum bcmgenet_rxnfc_state state;
 };
 
 /* device context */
 struct bcmgenet_priv {
 	void __iomem *base;
+	/* reg_lock: lock to serialize access to shared registers */
+	spinlock_t reg_lock;
 	enum bcmgenet_version version;
 	struct net_device *dev;
 
@@ -615,18 +583,24 @@ struct bcmgenet_priv {
 	struct enet_cb *tx_cbs;
 	unsigned int num_tx_bds;
 
-	struct bcmgenet_tx_ring tx_rings[DESC_INDEX + 1];
+	struct bcmgenet_tx_ring tx_rings[GENET_MAX_MQ_CNT + 1];
 
 	/* receive variables */
 	void __iomem *rx_bds;
 	struct enet_cb *rx_cbs;
 	unsigned int num_rx_bds;
 	unsigned int rx_buf_len;
+	struct bcmgenet_rxnfc_rule rxnfc_rules[MAX_NUM_OF_FS_RULES];
+	struct list_head rxnfc_list;
 
-	struct bcmgenet_rx_ring rx_rings[DESC_INDEX + 1];
+	struct bcmgenet_rx_ring rx_rings[GENET_MAX_MQ_CNT + 1];
 
 	/* other misc variables */
-	struct bcmgenet_hw_params *hw_params;
+	const struct bcmgenet_hw_params *hw_params;
+	u32 flags;
+	unsigned autoneg_pause:1;
+	unsigned tx_pause:1;
+	unsigned rx_pause:1;
 
 	/* MDIO bus variables */
 	wait_queue_head_t wq;
@@ -639,10 +613,6 @@ struct bcmgenet_priv {
 	bool clk_eee_enabled;
 
 	/* PHY device variables */
-	int old_link;
-	int old_speed;
-	int old_duplex;
-	int old_pause;
 	phy_interface_t phy_interface;
 	int phy_addr;
 	int ext_phy;
@@ -659,11 +629,9 @@ struct bcmgenet_priv {
 	unsigned int irq0_stat;
 
 	/* HW descriptors/checksum variables */
-	bool desc_64b_en;
-	bool desc_rxchk_en;
 	bool crc_fwd_en;
 
-	unsigned int dma_rx_chk_bit;
+	u32 dma_max_burst_length;
 
 	u32 msg_enable;
 
@@ -674,11 +642,37 @@ struct bcmgenet_priv {
 	/* WOL */
 	struct clk *clk_wol;
 	u32 wolopts;
+	u8 sopass[SOPASS_MAX];
 
 	struct bcmgenet_mib_counters mib;
 
-	struct ethtool_eee eee;
+	struct ethtool_keee eee;
 };
+
+static inline bool bcmgenet_has_40bits(struct bcmgenet_priv *priv)
+{
+	return !!(priv->flags & GENET_HAS_40BITS);
+}
+
+static inline bool bcmgenet_has_ext(struct bcmgenet_priv *priv)
+{
+	return !!(priv->flags & GENET_HAS_EXT);
+}
+
+static inline bool bcmgenet_has_mdio_intr(struct bcmgenet_priv *priv)
+{
+	return !!(priv->flags & GENET_HAS_MDIO_INTR);
+}
+
+static inline bool bcmgenet_has_moca_link_det(struct bcmgenet_priv *priv)
+{
+	return !!(priv->flags & GENET_HAS_MOCA_LINK_DET);
+}
+
+static inline bool bcmgenet_has_ephy_16nm(struct bcmgenet_priv *priv)
+{
+	return !!(priv->flags & GENET_HAS_EPHY_16NM);
+}
 
 #define GENET_IO_MACRO(name, offset)					\
 static inline u32 bcmgenet_##name##_readl(struct bcmgenet_priv *priv,	\
@@ -720,9 +714,10 @@ GENET_IO_MACRO(rbuf, GENET_RBUF_OFF);
 
 /* MDIO routines */
 int bcmgenet_mii_init(struct net_device *dev);
-int bcmgenet_mii_connect(struct net_device *dev);
 int bcmgenet_mii_config(struct net_device *dev, bool init);
+int bcmgenet_mii_probe(struct net_device *dev);
 void bcmgenet_mii_exit(struct net_device *dev);
+void bcmgenet_phy_pause_set(struct net_device *dev, bool rx, bool tx);
 void bcmgenet_phy_power_set(struct net_device *dev, bool enable);
 void bcmgenet_mii_setup(struct net_device *dev);
 
@@ -731,7 +726,10 @@ void bcmgenet_get_wol(struct net_device *dev, struct ethtool_wolinfo *wol);
 int bcmgenet_set_wol(struct net_device *dev, struct ethtool_wolinfo *wol);
 int bcmgenet_wol_power_down_cfg(struct bcmgenet_priv *priv,
 				enum bcmgenet_power_mode mode);
-void bcmgenet_wol_power_up_cfg(struct bcmgenet_priv *priv,
-			       enum bcmgenet_power_mode mode);
+int bcmgenet_wol_power_up_cfg(struct bcmgenet_priv *priv,
+			      enum bcmgenet_power_mode mode);
+
+void bcmgenet_eee_enable_set(struct net_device *dev, bool enable,
+			     bool tx_lpi_enabled);
 
 #endif /* __BCMGENET_H__ */

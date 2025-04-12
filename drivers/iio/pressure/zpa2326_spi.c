@@ -10,7 +10,7 @@
 #include <linux/module.h>
 #include <linux/regmap.h>
 #include <linux/spi/spi.h>
-#include <linux/of_device.h>
+#include <linux/mod_devicetable.h>
 #include "zpa2326.h"
 
 /*
@@ -26,7 +26,6 @@ static const struct regmap_config zpa2326_regmap_spi_config = {
 	.precious_reg   = zpa2326_isreg_precious,
 	.max_register   = ZPA2326_TEMP_OUT_H_REG,
 	.read_flag_mask = BIT(7) | BIT(6),
-	.cache_type     = REGCACHE_NONE,
 };
 
 static int zpa2326_probe_spi(struct spi_device *spi)
@@ -57,11 +56,9 @@ static int zpa2326_probe_spi(struct spi_device *spi)
 			     spi->irq, ZPA2326_DEVICE_ID, regmap);
 }
 
-static int zpa2326_remove_spi(struct spi_device *spi)
+static void zpa2326_remove_spi(struct spi_device *spi)
 {
 	zpa2326_remove(&spi->dev);
-
-	return 0;
 }
 
 static const struct spi_device_id zpa2326_spi_ids[] = {
@@ -70,18 +67,16 @@ static const struct spi_device_id zpa2326_spi_ids[] = {
 };
 MODULE_DEVICE_TABLE(spi, zpa2326_spi_ids);
 
-#if defined(CONFIG_OF)
 static const struct of_device_id zpa2326_spi_matches[] = {
 	{ .compatible = "murata,zpa2326" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, zpa2326_spi_matches);
-#endif
 
 static struct spi_driver zpa2326_spi_driver = {
 	.driver = {
 		.name           = "zpa2326-spi",
-		.of_match_table = of_match_ptr(zpa2326_spi_matches),
+		.of_match_table = zpa2326_spi_matches,
 		.pm             = ZPA2326_PM_OPS,
 	},
 	.probe    = zpa2326_probe_spi,
@@ -93,3 +88,4 @@ module_spi_driver(zpa2326_spi_driver);
 MODULE_AUTHOR("Gregor Boirie <gregor.boirie@parrot.com>");
 MODULE_DESCRIPTION("SPI driver for Murata ZPA2326 pressure sensor");
 MODULE_LICENSE("GPL v2");
+MODULE_IMPORT_NS("IIO_ZPA2326");

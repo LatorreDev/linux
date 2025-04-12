@@ -19,9 +19,8 @@
 #include <babeltrace/ctf-writer/event-fields.h>
 #include <babeltrace/ctf-ir/utils.h>
 #include <babeltrace/ctf/events.h>
-#include <traceevent/event-parse.h>
 #include "asm/bug.h"
-#include "data-convert-bt.h"
+#include "data-convert.h"
 #include "session.h"
 #include "debug.h"
 #include "tool.h"
@@ -31,6 +30,14 @@
 #include "config.h"
 #include <linux/ctype.h>
 #include <linux/err.h>
+#include <linux/time64.h>
+#include "util.h"
+#include "clockid.h"
+#include "util/sample.h"
+
+#ifdef HAVE_LIBTRACEEVENT
+#include <event-parse.h>
+#endif
 
 #define pr_N(n, fmt, ...) \
 	eprintf(n, debug_data_convert, fmt, ##__VA_ARGS__)
@@ -315,6 +322,8 @@ static int add_tracepoint_field_value(struct ctf_writer *cw,
 		offset = tmp_val;
 		len = offset >> 16;
 		offset &= 0xffff;
+		if (tep_field_is_relative(flags))
+			offset += fmtf->offset + fmtf->size;
 	}
 
 	if (flags & TEP_FIELD_IS_ARRAY) {
@@ -417,8 +426,9 @@ static int add_tracepoint_values(struct ctf_writer *cw,
 				 struct evsel *evsel,
 				 struct perf_sample *sample)
 {
-	struct tep_format_field *common_fields = evsel->tp_format->format.common_fields;
-	struct tep_format_field *fields        = evsel->tp_format->format.fields;
+	const struct tep_event *tp_format = evsel__tp_format(evsel);
+	struct tep_format_field *common_fields = tp_format->format.common_fields;
+	struct tep_format_field *fields        = tp_format->format.fields;
 	int ret;
 
 	ret = add_tracepoint_fields_values(cw, event_class, event,
@@ -783,7 +793,7 @@ static bool is_flush_needed(struct ctf_stream *cs)
 	return cs->count >= STREAM_FLUSH_COUNT;
 }
 
-static int process_sample_event(struct perf_tool *tool,
+static int process_sample_event(const struct perf_tool *tool,
 				union perf_event *_event,
 				struct perf_sample *sample,
 				struct evsel *evsel,
@@ -835,7 +845,7 @@ static int process_sample_event(struct perf_tool *tool,
 			return -1;
 	}
 
-	if (perf_evsel__is_bpf_output(evsel)) {
+	if (evsel__is_bpf_output(evsel)) {
 		ret = add_bpf_output_values(event_class, event, sample);
 		if (ret)
 			return -1;
@@ -862,7 +872,7 @@ do {							\
 } while(0)
 
 #define __FUNC_PROCESS_NON_SAMPLE(_name, body) 	\
-static int process_##_name##_event(struct perf_tool *tool,	\
+static int process_##_name##_event(const struct perf_tool *tool,	\
 				   union perf_event *_event,	\
 				   struct perf_sample *sample,	\
 				   struct machine *machine)	\
@@ -945,8 +955,8 @@ static char *change_name(char *name, char *orig_name, int dup)
 		goto out;
 	/*
 	 * Add '_' prefix to potential keywork.  According to
-	 * Mathieu Desnoyers (https://lkml.org/lkml/2015/1/23/652),
-	 * futher CTF spec updating may require us to use '$'.
+	 * Mathieu Desnoyers (https://lore.kernel.org/lkml/1074266107.40857.1422045946295.JavaMail.zimbra@efficios.com),
+	 * further CTF spec updating may require us to use '$'.
 	 */
 	if (dup < 0)
 		len = strlen(name) + sizeof("_");
@@ -1055,8 +1065,9 @@ static int add_tracepoint_types(struct ctf_writer *cw,
 				struct evsel *evsel,
 				struct bt_ctf_event_class *class)
 {
-	struct tep_format_field *common_fields = evsel->tp_format->format.common_fields;
-	struct tep_format_field *fields        = evsel->tp_format->format.fields;
+	const struct tep_event *tp_format = evsel__tp_format(evsel);
+	struct tep_format_field *common_fields = tp_format ? tp_format->format.common_fields : NULL;
+	struct tep_format_field *fields        = tp_format ? tp_format->format.fields : NULL;
 	int ret;
 
 	ret = add_tracepoint_fields_types(cw, common_fields, class);
@@ -1155,7 +1166,7 @@ static int add_event(struct ctf_writer *cw, struct evsel *evsel)
 {
 	struct bt_ctf_event_class *event_class;
 	struct evsel_priv *priv;
-	const char *name = perf_evsel__name(evsel);
+	const char *name = evsel__name(evsel);
 	int ret;
 
 	pr("Adding event '%s' (type %d)\n", name, evsel->core.attr.type);
@@ -1174,7 +1185,7 @@ static int add_event(struct ctf_writer *cw, struct evsel *evsel)
 			goto err;
 	}
 
-	if (perf_evsel__is_bpf_output(evsel)) {
+	if (evsel__is_bpf_output(evsel)) {
 		ret = add_bpf_output_types(cw, event_class);
 		if (ret)
 			goto err;
@@ -1381,11 +1392,26 @@ do {									\
 	return 0;
 }
 
-static int ctf_writer__setup_clock(struct ctf_writer *cw)
+static int ctf_writer__setup_clock(struct ctf_writer *cw,
+				   struct perf_session *session,
+				   bool tod)
 {
 	struct bt_ctf_clock *clock = cw->clock;
+	const char *desc = "perf clock";
+	int64_t offset = 0;
 
-	bt_ctf_clock_set_description(clock, "perf clock");
+	if (tod) {
+		struct perf_env *env = &session->header.env;
+
+		if (!env->clock.enabled) {
+			pr_err("Can't provide --tod time, missing clock data. "
+			       "Please record with -k/--clockid option.\n");
+			return -1;
+		}
+
+		desc   = clockid_name(env->clock.clockid);
+		offset = env->clock.tod_ns - env->clock.clockid_ns;
+	}
 
 #define SET(__n, __v)				\
 do {						\
@@ -1394,8 +1420,8 @@ do {						\
 } while (0)
 
 	SET(frequency,   1000000000);
-	SET(offset_s,    0);
-	SET(offset,      0);
+	SET(offset,      offset);
+	SET(description, desc);
 	SET(precision,   10);
 	SET(is_absolute, 0);
 
@@ -1419,7 +1445,7 @@ static struct bt_ctf_field_type *create_int_type(int size, bool sign, bool hex)
 	    bt_ctf_field_type_integer_set_base(type, BT_CTF_INTEGER_BASE_HEXADECIMAL))
 		goto err;
 
-#if __BYTE_ORDER == __BIG_ENDIAN
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 	bt_ctf_field_type_set_byte_order(type, BT_CTF_BYTE_ORDER_BIG_ENDIAN);
 #else
 	bt_ctf_field_type_set_byte_order(type, BT_CTF_BYTE_ORDER_LITTLE_ENDIAN);
@@ -1481,7 +1507,8 @@ static void ctf_writer__cleanup(struct ctf_writer *cw)
 	memset(cw, 0, sizeof(*cw));
 }
 
-static int ctf_writer__init(struct ctf_writer *cw, const char *path)
+static int ctf_writer__init(struct ctf_writer *cw, const char *path,
+			    struct perf_session *session, bool tod)
 {
 	struct bt_ctf_writer		*writer;
 	struct bt_ctf_stream_class	*stream_class;
@@ -1505,7 +1532,7 @@ static int ctf_writer__init(struct ctf_writer *cw, const char *path)
 
 	cw->clock = clock;
 
-	if (ctf_writer__setup_clock(cw)) {
+	if (ctf_writer__setup_clock(cw, session, tod)) {
 		pr("Failed to setup CTF clock.\n");
 		goto err_cleanup;
 	}
@@ -1582,24 +1609,22 @@ int bt_convert__perf2ctf(const char *input, const char *path,
 		.mode      = PERF_DATA_MODE_READ,
 		.force     = opts->force,
 	};
-	struct convert c = {
-		.tool = {
-			.sample          = process_sample_event,
-			.mmap            = perf_event__process_mmap,
-			.mmap2           = perf_event__process_mmap2,
-			.comm            = perf_event__process_comm,
-			.exit            = perf_event__process_exit,
-			.fork            = perf_event__process_fork,
-			.lost            = perf_event__process_lost,
-			.tracing_data    = perf_event__process_tracing_data,
-			.build_id        = perf_event__process_build_id,
-			.namespaces      = perf_event__process_namespaces,
-			.ordered_events  = true,
-			.ordering_requires_timestamps = true,
-		},
-	};
+	struct convert c = {};
 	struct ctf_writer *cw = &c.writer;
 	int err;
+
+	perf_tool__init(&c.tool, /*ordered_events=*/true);
+	c.tool.sample          = process_sample_event;
+	c.tool.mmap            = perf_event__process_mmap;
+	c.tool.mmap2           = perf_event__process_mmap2;
+	c.tool.comm            = perf_event__process_comm;
+	c.tool.exit            = perf_event__process_exit;
+	c.tool.fork            = perf_event__process_fork;
+	c.tool.lost            = perf_event__process_lost;
+	c.tool.tracing_data    = perf_event__process_tracing_data;
+	c.tool.build_id        = perf_event__process_build_id;
+	c.tool.namespaces      = perf_event__process_namespaces;
+	c.tool.ordering_requires_timestamps = true;
 
 	if (opts->all) {
 		c.tool.comm = process_comm_event;
@@ -1613,17 +1638,15 @@ int bt_convert__perf2ctf(const char *input, const char *path,
 	if (err)
 		return err;
 
-	/* CTF writer */
-	if (ctf_writer__init(cw, path))
-		return -1;
-
 	err = -1;
 	/* perf.data session */
-	session = perf_session__new(&data, 0, &c.tool);
-	if (IS_ERR(session)) {
-		err = PTR_ERR(session);
-		goto free_writer;
-	}
+	session = perf_session__new(&data, &c.tool);
+	if (IS_ERR(session))
+		return PTR_ERR(session);
+
+	/* CTF writer */
+	if (ctf_writer__init(cw, path, session, opts->tod))
+		goto free_session;
 
 	if (c.queue_size) {
 		ordered_events__set_alloc_size(&session->ordered_events,
@@ -1632,17 +1655,17 @@ int bt_convert__perf2ctf(const char *input, const char *path,
 
 	/* CTF writer env/clock setup  */
 	if (ctf_writer__setup_env(cw, session))
-		goto free_session;
+		goto free_writer;
 
 	/* CTF events setup */
 	if (setup_events(cw, session))
-		goto free_session;
+		goto free_writer;
 
 	if (opts->all && setup_non_sample_events(cw, session))
-		goto free_session;
+		goto free_writer;
 
 	if (setup_streams(cw, session))
-		goto free_session;
+		goto free_writer;
 
 	err = perf_session__process_events(session);
 	if (!err)
@@ -1670,10 +1693,10 @@ int bt_convert__perf2ctf(const char *input, const char *path,
 
 	return err;
 
-free_session:
-	perf_session__delete(session);
 free_writer:
 	ctf_writer__cleanup(cw);
+free_session:
+	perf_session__delete(session);
 	pr_err("Error during conversion setup.\n");
 	return err;
 }

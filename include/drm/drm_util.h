@@ -36,31 +36,17 @@
 #include <linux/kgdb.h>
 #include <linux/preempt.h>
 #include <linux/smp.h>
+#include <linux/util_macros.h>
 
 /*
  * Use EXPORT_SYMBOL_FOR_TESTS_ONLY() for functions that shall
  * only be visible for drmselftests.
  */
-#if defined(CONFIG_DRM_DEBUG_SELFTEST_MODULE)
+#if defined(CONFIG_DRM_EXPORT_FOR_TESTS)
 #define EXPORT_SYMBOL_FOR_TESTS_ONLY(x) EXPORT_SYMBOL(x)
 #else
 #define EXPORT_SYMBOL_FOR_TESTS_ONLY(x)
 #endif
-
-/**
- * for_each_if - helper for handling conditionals in various for_each macros
- * @condition: The condition to check
- *
- * Typical use::
- *
- *	#define for_each_foo_bar(x, y) \'
- *		list_for_each_entry(x, y->list, head) \'
- *			for_each_if(x->something == SOMETHING)
- *
- * The for_each_if() macro makes the use of for_each_foo_bar() less error
- * prone.
- */
-#define for_each_if(condition) if (!(condition)) {} else
 
 /**
  * drm_can_sleep - returns true if currently okay to sleep

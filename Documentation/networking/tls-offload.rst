@@ -51,7 +51,7 @@ and send them to the device for encryption and transmission.
 RX
 --
 
-On the receive side if the device handled decryption and authentication
+On the receive side, if the device handled decryption and authentication
 successfully, the driver will set the decrypted bit in the associated
 :c:type:`struct sk_buff <sk_buff>`. The packets reach the TCP stack and
 are handled normally. ``ktls`` is informed when data is queued to the socket
@@ -120,8 +120,9 @@ before installing the connection state in the kernel.
 RX
 --
 
-In RX direction local networking stack has little control over the segmentation,
-so the initial records' TCP sequence number may be anywhere inside the segment.
+In the RX direction, the local networking stack has little control over
+segmentation, so the initial records' TCP sequence number may be anywhere
+inside the segment.
 
 Normal operation
 ================
@@ -138,8 +139,8 @@ There are no guarantees on record length or record segmentation. In particular
 segments may start at any point of a record and contain any number of records.
 Assuming segments are received in order, the device should be able to perform
 crypto operations and authentication regardless of segmentation. For this
-to be possible device has to keep small amount of segment-to-segment state.
-This includes at least:
+to be possible, the device has to keep a small amount of segment-to-segment
+state. This includes at least:
 
  * partial headers (if a segment carried only a part of the TLS header)
  * partial data block
@@ -175,12 +176,12 @@ and packet transformation functions) the device validates the Layer 4
 checksum and performs a 5-tuple lookup to find any TLS connection the packet
 may belong to (technically a 4-tuple
 lookup is sufficient - IP addresses and TCP port numbers, as the protocol
-is always TCP). If connection is matched device confirms if the TCP sequence
-number is the expected one and proceeds to TLS handling (record delineation,
-decryption, authentication for each record in the packet). The device leaves
-the record framing unmodified, the stack takes care of record decapsulation.
-Device indicates successful handling of TLS offload in the per-packet context
-(descriptor) passed to the host.
+is always TCP). If the packet is matched to a connection, the device confirms
+if the TCP sequence number is the expected one and proceeds to TLS handling
+(record delineation, decryption, authentication for each record in the packet).
+The device leaves the record framing unmodified, the stack takes care of record
+decapsulation. Device indicates successful handling of TLS offload in the
+per-packet context (descriptor) passed to the host.
 
 Upon reception of a TLS offloaded packet, the driver sets
 the :c:member:`decrypted` mark in :c:type:`struct sk_buff <sk_buff>`
@@ -428,6 +429,24 @@ by the driver:
    which were part of a TLS stream.
  * ``rx_tls_decrypted_bytes`` - number of TLS payload bytes in RX packets
    which were successfully decrypted.
+ * ``rx_tls_ctx`` - number of TLS RX HW offload contexts added to device for
+   decryption.
+ * ``rx_tls_del`` - number of TLS RX HW offload contexts deleted from device
+   (connection has finished).
+ * ``rx_tls_resync_req_pkt`` - number of received TLS packets with a resync
+    request.
+ * ``rx_tls_resync_req_start`` - number of times the TLS async resync request
+    was started.
+ * ``rx_tls_resync_req_end`` - number of times the TLS async resync request
+    properly ended with providing the HW tracked tcp-seq.
+ * ``rx_tls_resync_req_skip`` - number of times the TLS async resync request
+    procedure was started but not properly ended.
+ * ``rx_tls_resync_res_ok`` - number of times the TLS resync response call to
+    the driver was successfully handled.
+ * ``rx_tls_resync_res_skip`` - number of times the TLS resync response call to
+    the driver was terminated unsuccessfully.
+ * ``rx_tls_err`` - number of RX packets which were part of a TLS stream
+   but were not decrypted due to unexpected error in the state machine.
  * ``tx_tls_encrypted_packets`` - number of TX packets passed to the device
    for encryption of their TLS payload.
  * ``tx_tls_encrypted_bytes`` - number of TLS payload bytes in TX packets
@@ -436,6 +455,10 @@ by the driver:
    encryption.
  * ``tx_tls_ooo`` - number of TX packets which were part of a TLS stream
    but did not arrive in the expected order.
+ * ``tx_tls_skip_no_sync_data`` - number of TX packets which were part of
+   a TLS stream and arrived out-of-order, but skipped the HW offload routine
+   and went to the regular transmit flow as they were retransmissions of the
+   connection handshake.
  * ``tx_tls_drop_no_sync_data`` - number of TX packets which were part of
    a TLS stream dropped, because they arrived out of order and associated
    record could not be found.
@@ -485,8 +508,8 @@ in packets as seen on the wire.
 Transport layer transparency
 ----------------------------
 
-The device should not modify any packet headers for the purpose
-of the simplifying TLS offload.
+For the purpose of simplifying TLS offload, the device should not modify any
+packet headers.
 
 The device should not depend on any packet headers beyond what is strictly
 necessary for TLS offload.
@@ -502,7 +525,16 @@ on TCP retransmissions to handle corner cases is not acceptable.
 TLS device features
 -------------------
 
-Drivers should ignore the changes to TLS the device feature flags.
+Drivers should ignore the changes to the TLS device feature flags.
 These flags will be acted upon accordingly by the core ``ktls`` code.
 TLS device feature flags only control adding of new TLS connection
 offloads, old connections will remain active after flags are cleared.
+
+TLS encryption cannot be offloaded to devices without checksum calculation
+offload. Hence, TLS TX device feature flag requires TX csum offload being set.
+Disabling the latter implies clearing the former. Disabling TX checksum offload
+should not affect old connections, and drivers should make sure checksum
+calculation does not break for them.
+Similarly, device-offloaded TLS decryption implies doing RXCSUM. If the user
+does not want to enable RX csum offload, TLS RX device feature is disabled
+as well.

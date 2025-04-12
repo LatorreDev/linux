@@ -18,13 +18,13 @@ DECLARE_EVENT_CLASS(preemptirq_template,
 	TP_ARGS(ip, parent_ip),
 
 	TP_STRUCT__entry(
-		__field(u32, caller_offs)
-		__field(u32, parent_offs)
+		__field(s32, caller_offs)
+		__field(s32, parent_offs)
 	),
 
 	TP_fast_assign(
-		__entry->caller_offs = (u32)(ip - (unsigned long)_stext);
-		__entry->parent_offs = (u32)(parent_ip - (unsigned long)_stext);
+		__entry->caller_offs = (s32)(ip - (unsigned long)_stext);
+		__entry->parent_offs = (s32)(parent_ip - (unsigned long)_stext);
 	),
 
 	TP_printk("caller=%pS parent=%pS",
@@ -43,8 +43,6 @@ DEFINE_EVENT(preemptirq_template, irq_enable,
 #else
 #define trace_irq_enable(...)
 #define trace_irq_disable(...)
-#define trace_irq_enable_rcuidle(...)
-#define trace_irq_disable_rcuidle(...)
 #endif
 
 #ifdef CONFIG_TRACE_PREEMPT_TOGGLE
@@ -58,8 +56,6 @@ DEFINE_EVENT(preemptirq_template, preempt_enable,
 #else
 #define trace_preempt_enable(...)
 #define trace_preempt_disable(...)
-#define trace_preempt_enable_rcuidle(...)
-#define trace_preempt_disable_rcuidle(...)
 #endif
 
 #endif /* _TRACE_PREEMPTIRQ_H */
@@ -69,10 +65,6 @@ DEFINE_EVENT(preemptirq_template, preempt_enable,
 #else /* !CONFIG_PREEMPTIRQ_TRACEPOINTS */
 #define trace_irq_enable(...)
 #define trace_irq_disable(...)
-#define trace_irq_enable_rcuidle(...)
-#define trace_irq_disable_rcuidle(...)
 #define trace_preempt_enable(...)
 #define trace_preempt_disable(...)
-#define trace_preempt_enable_rcuidle(...)
-#define trace_preempt_disable_rcuidle(...)
 #endif

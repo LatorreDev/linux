@@ -496,7 +496,7 @@ void saa7134_ir_close(struct rc_dev *rc)
 	struct saa7134_card_ir *ir = dev->remote;
 
 	if (ir->polling)
-		del_timer_sync(&ir->timer);
+		timer_delete_sync(&ir->timer);
 
 	ir->running = false;
 }
@@ -982,7 +982,7 @@ void saa7134_probe_i2c_ir(struct saa7134_dev *dev)
 
 	if (dev->init_data.name)
 		info.platform_data = &dev->init_data;
-	i2c_new_device(&dev->i2c_adap, &info);
+	i2c_new_client_device(&dev->i2c_adap, &info);
 }
 
 static int saa7134_raw_decode_irq(struct saa7134_dev *dev)

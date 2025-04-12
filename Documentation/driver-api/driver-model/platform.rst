@@ -41,13 +41,14 @@ and shutdown notifications using the standard conventions::
 
   struct platform_driver {
 	int (*probe)(struct platform_device *);
-	int (*remove)(struct platform_device *);
+	void (*remove)(struct platform_device *);
 	void (*shutdown)(struct platform_device *);
 	int (*suspend)(struct platform_device *, pm_message_t state);
-	int (*suspend_late)(struct platform_device *, pm_message_t state);
-	int (*resume_early)(struct platform_device *);
 	int (*resume)(struct platform_device *);
 	struct device_driver driver;
+	const struct platform_device_id *id_table;
+	bool prevent_deferred_probe;
+	bool driver_managed_dma;
   };
 
 Note that probe() should in general verify that the specified device hardware
@@ -108,7 +109,7 @@ field to hold additional information.
 
 Embedded systems frequently need one or more clocks for platform devices,
 which are normally kept off until they're actively needed (to save power).
-System setup also associates those clocks with the device, so that that
+System setup also associates those clocks with the device, so that
 calls to clk_get(&pdev->dev, clock_name) return them as needed.
 
 

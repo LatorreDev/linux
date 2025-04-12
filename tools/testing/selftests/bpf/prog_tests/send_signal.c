@@ -1,39 +1,46 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <test_progs.h>
+#include <sys/time.h>
+#include <sys/resource.h>
+#include "test_send_signal_kern.skel.h"
+#include "io_helpers.h"
 
-static volatile int sigusr1_received = 0;
+static int sigusr1_received;
 
 static void sigusr1_handler(int signum)
 {
-	sigusr1_received++;
+	sigusr1_received = 8;
+}
+
+static void sigusr1_siginfo_handler(int s, siginfo_t *i, void *v)
+{
+	sigusr1_received = (int)(long long)i->si_value.sival_ptr;
 }
 
 static void test_send_signal_common(struct perf_event_attr *attr,
-				    int prog_type,
-				    const char *test_name)
+				    bool signal_thread, bool remote)
 {
-	int err = -1, pmu_fd, prog_fd, info_map_fd, status_map_fd;
-	const char *file = "./test_send_signal_kern.o";
-	struct bpf_object *obj = NULL;
+	struct test_send_signal_kern *skel;
+	struct sigaction sa;
 	int pipe_c2p[2], pipe_p2c[2];
-	__u32 key = 0, duration = 0;
+	int err = -1, pmu_fd = -1;
+	volatile int j = 0;
+	int retry_count;
 	char buf[256];
 	pid_t pid;
-	__u64 val;
+	int old_prio;
 
-	if (CHECK(pipe(pipe_c2p), test_name,
-		  "pipe pipe_c2p error: %s\n", strerror(errno)))
+	if (!ASSERT_OK(pipe(pipe_c2p), "pipe_c2p"))
 		return;
 
-	if (CHECK(pipe(pipe_p2c), test_name,
-		  "pipe pipe_p2c error: %s\n", strerror(errno))) {
+	if (!ASSERT_OK(pipe(pipe_p2c), "pipe_p2c")) {
 		close(pipe_c2p[0]);
 		close(pipe_c2p[1]);
 		return;
 	}
 
 	pid = fork();
-	if (CHECK(pid < 0, test_name, "fork error: %s\n", strerror(errno))) {
+	if (!ASSERT_GE(pid, 0, "fork")) {
 		close(pipe_c2p[0]);
 		close(pipe_c2p[1]);
 		close(pipe_p2c[0]);
@@ -43,27 +50,56 @@ static void test_send_signal_common(struct perf_event_attr *attr,
 
 	if (pid == 0) {
 		/* install signal handler and notify parent */
-		signal(SIGUSR1, sigusr1_handler);
+		if (remote) {
+			sa.sa_sigaction = sigusr1_siginfo_handler;
+			sa.sa_flags = SA_RESTART | SA_SIGINFO;
+			ASSERT_NEQ(sigaction(SIGUSR1, &sa, NULL), -1, "sigaction");
+		} else {
+			ASSERT_NEQ(signal(SIGUSR1, sigusr1_handler), SIG_ERR, "signal");
+		}
 
 		close(pipe_c2p[0]); /* close read */
 		close(pipe_p2c[1]); /* close write */
 
+		/* boost with a high priority so we got a higher chance
+		 * that if an interrupt happens, the underlying task
+		 * is this process.
+		 */
+		if (!remote) {
+			errno = 0;
+			old_prio = getpriority(PRIO_PROCESS, 0);
+			ASSERT_OK(errno, "getpriority");
+			ASSERT_OK(setpriority(PRIO_PROCESS, 0, -20), "setpriority");
+		}
+
 		/* notify parent signal handler is installed */
-		write(pipe_c2p[1], buf, 1);
+		ASSERT_EQ(write(pipe_c2p[1], buf, 1), 1, "pipe_write");
 
 		/* make sure parent enabled bpf program to send_signal */
-		read(pipe_p2c[0], buf, 1);
+		ASSERT_EQ(read(pipe_p2c[0], buf, 1), 1, "pipe_read");
 
 		/* wait a little for signal handler */
-		sleep(1);
+		for (int i = 0; i < 1000000000 && !sigusr1_received; i++) {
+			j /= i + j + 1;
+			if (remote)
+				sleep(1);
+			else
+				if (!attr)
+					/* trigger the nanosleep tracepoint program. */
+					usleep(1);
+		}
 
-		if (sigusr1_received)
-			write(pipe_c2p[1], "2", 1);
-		else
-			write(pipe_c2p[1], "0", 1);
+		buf[0] = sigusr1_received;
+
+		ASSERT_EQ(sigusr1_received, 8, "sigusr1_received");
+		ASSERT_EQ(write(pipe_c2p[1], buf, 1), 1, "pipe_write");
 
 		/* wait for parent notification and exit */
-		read(pipe_p2c[0], buf, 1);
+		ASSERT_EQ(read(pipe_p2c[0], buf, 1), 1, "pipe_read");
+
+		/* restore the old priority */
+		if (!remote)
+			ASSERT_OK(setpriority(PRIO_PROCESS, 0, old_prio), "setpriority");
 
 		close(pipe_c2p[1]);
 		close(pipe_p2c[0]);
@@ -73,121 +109,128 @@ static void test_send_signal_common(struct perf_event_attr *attr,
 	close(pipe_c2p[1]); /* close write */
 	close(pipe_p2c[0]); /* close read */
 
-	err = bpf_prog_load(file, prog_type, &obj, &prog_fd);
-	if (CHECK(err < 0, test_name, "bpf_prog_load error: %s\n",
-		  strerror(errno)))
-		goto prog_load_failure;
+	skel = test_send_signal_kern__open_and_load();
+	if (!ASSERT_OK_PTR(skel, "skel_open_and_load"))
+		goto skel_open_load_failure;
 
-	pmu_fd = syscall(__NR_perf_event_open, attr, pid, -1,
-			 -1 /* group id */, 0 /* flags */);
-	if (CHECK(pmu_fd < 0, test_name, "perf_event_open error: %s\n",
-		  strerror(errno))) {
-		err = -1;
-		goto close_prog;
+	/* boost with a high priority so we got a higher chance
+	 * that if an interrupt happens, the underlying task
+	 * is this process.
+	 */
+	if (remote) {
+		errno = 0;
+		old_prio = getpriority(PRIO_PROCESS, 0);
+		ASSERT_OK(errno, "getpriority");
+		ASSERT_OK(setpriority(PRIO_PROCESS, 0, -20), "setpriority");
 	}
 
-	err = ioctl(pmu_fd, PERF_EVENT_IOC_ENABLE, 0);
-	if (CHECK(err < 0, test_name, "ioctl perf_event_ioc_enable error: %s\n",
-		  strerror(errno)))
-		goto disable_pmu;
+	if (!attr) {
+		err = test_send_signal_kern__attach(skel);
+		if (!ASSERT_OK(err, "skel_attach")) {
+			err = -1;
+			goto destroy_skel;
+		}
+	} else {
+		if (!remote)
+			pmu_fd = syscall(__NR_perf_event_open, attr, pid, -1 /* cpu */,
+					 -1 /* group id */, 0 /* flags */);
+		else
+			pmu_fd = syscall(__NR_perf_event_open, attr, getpid(), -1 /* cpu */,
+					 -1 /* group id */, 0 /* flags */);
+		if (!ASSERT_GE(pmu_fd, 0, "perf_event_open")) {
+			err = -1;
+			goto destroy_skel;
+		}
 
-	err = ioctl(pmu_fd, PERF_EVENT_IOC_SET_BPF, prog_fd);
-	if (CHECK(err < 0, test_name, "ioctl perf_event_ioc_set_bpf error: %s\n",
-		  strerror(errno)))
-		goto disable_pmu;
-
-	err = -1;
-	info_map_fd = bpf_object__find_map_fd_by_name(obj, "info_map");
-	if (CHECK(info_map_fd < 0, test_name, "find map %s error\n", "info_map"))
-		goto disable_pmu;
-
-	status_map_fd = bpf_object__find_map_fd_by_name(obj, "status_map");
-	if (CHECK(status_map_fd < 0, test_name, "find map %s error\n", "status_map"))
-		goto disable_pmu;
+		skel->links.send_signal_perf =
+			bpf_program__attach_perf_event(skel->progs.send_signal_perf, pmu_fd);
+		if (!ASSERT_OK_PTR(skel->links.send_signal_perf, "attach_perf_event"))
+			goto disable_pmu;
+	}
 
 	/* wait until child signal handler installed */
-	read(pipe_c2p[0], buf, 1);
+	ASSERT_EQ(read(pipe_c2p[0], buf, 1), 1, "pipe_read");
 
 	/* trigger the bpf send_signal */
-	key = 0;
-	val = (((__u64)(SIGUSR1)) << 32) | pid;
-	bpf_map_update_elem(info_map_fd, &key, &val, 0);
+	skel->bss->signal_thread = signal_thread;
+	skel->bss->sig = SIGUSR1;
+	if (!remote) {
+		skel->bss->target_pid = 0;
+		skel->bss->pid = pid;
+	} else {
+		skel->bss->target_pid = pid;
+		skel->bss->pid = getpid();
+	}
 
 	/* notify child that bpf program can send_signal now */
-	write(pipe_p2c[1], buf, 1);
+	ASSERT_EQ(write(pipe_p2c[1], buf, 1), 1, "pipe_write");
 
-	/* wait for result */
-	err = read(pipe_c2p[0], buf, 1);
-	if (CHECK(err < 0, test_name, "reading pipe error: %s\n", strerror(errno)))
+	for (retry_count = 0;;) {
+		/* For the remote test, the BPF program is triggered from this
+		 * process but the other process/thread is signaled.
+		 */
+		if (remote) {
+			if (!attr) {
+				for (int i = 0; i < 10; i++)
+					usleep(1);
+			} else {
+				for (int i = 0; i < 100000000; i++)
+					j /= i + 1;
+			}
+		}
+		/* wait for result */
+		err = read_with_timeout(pipe_c2p[0], buf, 1, 100);
+		if (err == -EAGAIN && retry_count++ < 10000)
+			continue;
+		break;
+	}
+	if (!ASSERT_GE(err, 0, "reading pipe"))
 		goto disable_pmu;
-	if (CHECK(err == 0, test_name, "reading pipe error: size 0\n")) {
+	if (!ASSERT_GT(err, 0, "reading pipe error: size 0")) {
 		err = -1;
 		goto disable_pmu;
 	}
 
-	CHECK(buf[0] != '2', test_name, "incorrect result\n");
+	ASSERT_EQ(buf[0], 8, "incorrect result");
 
 	/* notify child safe to exit */
-	write(pipe_p2c[1], buf, 1);
+	ASSERT_EQ(write(pipe_p2c[1], buf, 1), 1, "pipe_write");
 
 disable_pmu:
 	close(pmu_fd);
-close_prog:
-	bpf_object__close(obj);
-prog_load_failure:
+destroy_skel:
+	test_send_signal_kern__destroy(skel);
+	/* restore the old priority */
+	if (remote)
+		ASSERT_OK(setpriority(PRIO_PROCESS, 0, old_prio), "setpriority");
+skel_open_load_failure:
 	close(pipe_c2p[0]);
 	close(pipe_p2c[1]);
 	wait(NULL);
 }
 
-static void test_send_signal_tracepoint(void)
+static void test_send_signal_tracepoint(bool signal_thread, bool remote)
 {
-	const char *id_path = "/sys/kernel/debug/tracing/events/syscalls/sys_enter_nanosleep/id";
-	struct perf_event_attr attr = {
-		.type = PERF_TYPE_TRACEPOINT,
-		.sample_type = PERF_SAMPLE_RAW | PERF_SAMPLE_CALLCHAIN,
-		.sample_period = 1,
-		.wakeup_events = 1,
-	};
-	__u32 duration = 0;
-	int bytes, efd;
-	char buf[256];
-
-	efd = open(id_path, O_RDONLY, 0);
-	if (CHECK(efd < 0, "tracepoint",
-		  "open syscalls/sys_enter_nanosleep/id failure: %s\n",
-		  strerror(errno)))
-		return;
-
-	bytes = read(efd, buf, sizeof(buf));
-	close(efd);
-	if (CHECK(bytes <= 0 || bytes >= sizeof(buf), "tracepoint",
-		  "read syscalls/sys_enter_nanosleep/id failure: %s\n",
-		  strerror(errno)))
-		return;
-
-	attr.config = strtol(buf, NULL, 0);
-
-	test_send_signal_common(&attr, BPF_PROG_TYPE_TRACEPOINT, "tracepoint");
+	test_send_signal_common(NULL, signal_thread, remote);
 }
 
-static void test_send_signal_perf(void)
+static void test_send_signal_perf(bool signal_thread, bool remote)
 {
 	struct perf_event_attr attr = {
-		.sample_period = 1,
+		.freq = 1,
+		.sample_freq = 1000,
 		.type = PERF_TYPE_SOFTWARE,
 		.config = PERF_COUNT_SW_CPU_CLOCK,
 	};
 
-	test_send_signal_common(&attr, BPF_PROG_TYPE_PERF_EVENT,
-				"perf_sw_event");
+	test_send_signal_common(&attr, signal_thread, remote);
 }
 
-static void test_send_signal_nmi(void)
+static void test_send_signal_nmi(bool signal_thread, bool remote)
 {
 	struct perf_event_attr attr = {
-		.sample_freq = 50,
 		.freq = 1,
+		.sample_freq = 1000,
 		.type = PERF_TYPE_HARDWARE,
 		.config = PERF_COUNT_HW_CPU_CYCLES,
 	};
@@ -199,7 +242,7 @@ static void test_send_signal_nmi(void)
 	pmu_fd = syscall(__NR_perf_event_open, &attr, 0 /* pid */,
 			 -1 /* cpu */, -1 /* group_fd */, 0 /* flags */);
 	if (pmu_fd == -1) {
-		if (errno == ENOENT) {
+		if (errno == ENOENT || errno == EOPNOTSUPP) {
 			printf("%s:SKIP:no PERF_COUNT_HW_CPU_CYCLES\n",
 			       __func__);
 			test__skip();
@@ -210,16 +253,35 @@ static void test_send_signal_nmi(void)
 		close(pmu_fd);
 	}
 
-	test_send_signal_common(&attr, BPF_PROG_TYPE_PERF_EVENT,
-				"perf_hw_event");
+	test_send_signal_common(&attr, signal_thread, remote);
 }
 
 void test_send_signal(void)
 {
 	if (test__start_subtest("send_signal_tracepoint"))
-		test_send_signal_tracepoint();
+		test_send_signal_tracepoint(false, false);
 	if (test__start_subtest("send_signal_perf"))
-		test_send_signal_perf();
+		test_send_signal_perf(false, false);
 	if (test__start_subtest("send_signal_nmi"))
-		test_send_signal_nmi();
+		test_send_signal_nmi(false, false);
+	if (test__start_subtest("send_signal_tracepoint_thread"))
+		test_send_signal_tracepoint(true, false);
+	if (test__start_subtest("send_signal_perf_thread"))
+		test_send_signal_perf(true, false);
+	if (test__start_subtest("send_signal_nmi_thread"))
+		test_send_signal_nmi(true, false);
+
+	/* Signal remote thread and thread group */
+	if (test__start_subtest("send_signal_tracepoint_remote"))
+		test_send_signal_tracepoint(false, true);
+	if (test__start_subtest("send_signal_perf_remote"))
+		test_send_signal_perf(false, true);
+	if (test__start_subtest("send_signal_nmi_remote"))
+		test_send_signal_nmi(false, true);
+	if (test__start_subtest("send_signal_tracepoint_thread_remote"))
+		test_send_signal_tracepoint(true, true);
+	if (test__start_subtest("send_signal_perf_thread_remote"))
+		test_send_signal_perf(true, true);
+	if (test__start_subtest("send_signal_nmi_thread_remote"))
+		test_send_signal_nmi(true, true);
 }

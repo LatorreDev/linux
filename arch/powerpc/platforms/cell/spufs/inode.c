@@ -21,9 +21,10 @@
 #include <linux/namei.h>
 #include <linux/pagemap.h>
 #include <linux/poll.h>
+#include <linux/of.h>
+#include <linux/seq_file.h>
 #include <linux/slab.h>
 
-#include <asm/prom.h>
 #include <asm/spu.h>
 #include <asm/spu_priv1.h>
 #include <linux/uaccess.h>
@@ -85,20 +86,21 @@ spufs_new_inode(struct super_block *sb, umode_t mode)
 	inode->i_mode = mode;
 	inode->i_uid = current_fsuid();
 	inode->i_gid = current_fsgid();
-	inode->i_atime = inode->i_mtime = inode->i_ctime = current_time(inode);
+	simple_inode_init_ts(inode);
 out:
 	return inode;
 }
 
 static int
-spufs_setattr(struct dentry *dentry, struct iattr *attr)
+spufs_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
+	      struct iattr *attr)
 {
 	struct inode *inode = d_inode(dentry);
 
 	if ((attr->ia_valid & ATTR_SIZE) &&
 	    (attr->ia_size != inode->i_size))
 		return -EINVAL;
-	setattr_copy(inode, attr);
+	setattr_copy(&nop_mnt_idmap, inode, attr);
 	mark_inode_dirty(inode);
 	return 0;
 }
@@ -143,10 +145,11 @@ spufs_evict_inode(struct inode *inode)
 
 static void spufs_prune_dir(struct dentry *dir)
 {
-	struct dentry *dentry, *tmp;
+	struct dentry *dentry;
+	struct hlist_node *n;
 
 	inode_lock(d_inode(dir));
-	list_for_each_entry_safe(dentry, tmp, &dir->d_subdirs, d_child) {
+	hlist_for_each_entry_safe(dentry, n, &dir->d_children, d_sib) {
 		spin_lock(&dentry->d_lock);
 		if (simple_positive(dentry)) {
 			dget_dlock(dentry);
@@ -189,29 +192,47 @@ static int spufs_fill_dir(struct dentry *dir,
 			return -ENOMEM;
 		ret = spufs_new_file(dir->d_sb, dentry, files->ops,
 					files->mode & mode, files->size, ctx);
-		if (ret)
+		if (ret) {
+			dput(dentry);
 			return ret;
+		}
 		files++;
 	}
 	return 0;
 }
 
+static void unuse_gang(struct dentry *dir)
+{
+	struct inode *inode = dir->d_inode;
+	struct spu_gang *gang = SPUFS_I(inode)->i_gang;
+
+	if (gang) {
+		bool dead;
+
+		inode_lock(inode); // exclusion with spufs_create_context()
+		dead = !--gang->alive;
+		inode_unlock(inode);
+
+		if (dead)
+			simple_recursive_removal(dir, NULL);
+	}
+}
+
 static int spufs_dir_close(struct inode *inode, struct file *file)
 {
-	struct spu_context *ctx;
 	struct inode *parent;
 	struct dentry *dir;
 	int ret;
 
 	dir = file->f_path.dentry;
 	parent = d_inode(dir->d_parent);
-	ctx = SPUFS_I(d_inode(dir))->i_ctx;
 
 	inode_lock_nested(parent, I_MUTEX_PARENT);
 	ret = spufs_rmdir(parent, dir);
 	inode_unlock(parent);
 	WARN_ON(ret);
 
+	unuse_gang(dir->d_parent);
 	return dcache_dir_close(inode, file);
 }
 
@@ -237,10 +258,7 @@ spufs_mkdir(struct inode *dir, struct dentry *dentry, unsigned int flags,
 	if (!inode)
 		return -ENOSPC;
 
-	if (dir->i_mode & S_ISGID) {
-		inode->i_gid = dir->i_gid;
-		inode->i_mode &= S_ISGID;
-	}
+	inode_init_owner(&nop_mnt_idmap, inode, dir, mode | S_IFDIR);
 	ctx = alloc_spu_context(SPUFS_I(dir)->i_gang); /* XXX gang */
 	SPUFS_I(inode)->i_ctx = ctx;
 	if (!ctx) {
@@ -278,7 +296,7 @@ spufs_mkdir(struct inode *dir, struct dentry *dentry, unsigned int flags,
 	return ret;
 }
 
-static int spufs_context_open(struct path *path)
+static int spufs_context_open(const struct path *path)
 {
 	int ret;
 	struct file *filp;
@@ -407,7 +425,7 @@ spufs_create_context(struct inode *inode, struct dentry *dentry,
 {
 	int ret;
 	int affinity;
-	struct spu_gang *gang;
+	struct spu_gang *gang = SPUFS_I(inode)->i_gang;
 	struct spu_context *neighbor;
 	struct path path = {.mnt = mnt, .dentry = dentry};
 
@@ -422,11 +440,15 @@ spufs_create_context(struct inode *inode, struct dentry *dentry,
 	if ((flags & SPU_CREATE_ISOLATE) && !isolated_loader)
 		return -ENODEV;
 
-	gang = NULL;
+	if (gang) {
+		if (!gang->alive)
+			return -ENOENT;
+		gang->alive++;
+	}
+
 	neighbor = NULL;
 	affinity = flags & (SPU_CREATE_AFFINITY_MEM | SPU_CREATE_AFFINITY_SPU);
 	if (affinity) {
-		gang = SPUFS_I(inode)->i_gang;
 		if (!gang)
 			return -EINVAL;
 		mutex_lock(&gang->aff_mutex);
@@ -438,8 +460,11 @@ spufs_create_context(struct inode *inode, struct dentry *dentry,
 	}
 
 	ret = spufs_mkdir(inode, dentry, flags, mode & 0777);
-	if (ret)
+	if (ret) {
+		if (neighbor)
+			put_spu_context(neighbor);
 		goto out_aff_unlock;
+	}
 
 	if (affinity) {
 		spufs_set_affinity(flags, SPUFS_I(d_inode(dentry))->i_ctx,
@@ -455,6 +480,8 @@ spufs_create_context(struct inode *inode, struct dentry *dentry,
 out_aff_unlock:
 	if (affinity)
 		mutex_unlock(&gang->aff_mutex);
+	if (ret && gang)
+		gang->alive--; // can't reach 0
 	return ret;
 }
 
@@ -471,10 +498,7 @@ spufs_mkgang(struct inode *dir, struct dentry *dentry, umode_t mode)
 		goto out;
 
 	ret = 0;
-	if (dir->i_mode & S_ISGID) {
-		inode->i_gid = dir->i_gid;
-		inode->i_mode &= S_ISGID;
-	}
+	inode_init_owner(&nop_mnt_idmap, inode, dir, mode | S_IFDIR);
 	gang = alloc_spu_gang();
 	SPUFS_I(inode)->i_ctx = NULL;
 	SPUFS_I(inode)->i_gang = gang;
@@ -487,6 +511,7 @@ spufs_mkgang(struct inode *dir, struct dentry *dentry, umode_t mode)
 	inode->i_fop = &simple_dir_operations;
 
 	d_instantiate(dentry, inode);
+	dget(dentry);
 	inc_nlink(dir);
 	inc_nlink(d_inode(dentry));
 	return ret;
@@ -497,7 +522,22 @@ out:
 	return ret;
 }
 
-static int spufs_gang_open(struct path *path)
+static int spufs_gang_close(struct inode *inode, struct file *file)
+{
+	unuse_gang(file->f_path.dentry);
+	return dcache_dir_close(inode, file);
+}
+
+static const struct file_operations spufs_gang_fops = {
+	.open		= dcache_dir_open,
+	.release	= spufs_gang_close,
+	.llseek		= dcache_dir_lseek,
+	.read		= generic_read_dir,
+	.iterate_shared	= dcache_readdir,
+	.fsync		= noop_fsync,
+};
+
+static int spufs_gang_open(const struct path *path)
 {
 	int ret;
 	struct file *filp;
@@ -516,7 +556,7 @@ static int spufs_gang_open(struct path *path)
 		return PTR_ERR(filp);
 	}
 
-	filp->f_op = &simple_dir_operations;
+	filp->f_op = &spufs_gang_fops;
 	fd_install(ret, filp);
 	return ret;
 }
@@ -531,10 +571,8 @@ static int spufs_create_gang(struct inode *inode,
 	ret = spufs_mkgang(inode, dentry, mode & 0777);
 	if (!ret) {
 		ret = spufs_gang_open(&path);
-		if (ret < 0) {
-			int err = simple_rmdir(inode, dentry);
-			WARN_ON(err);
-		}
+		if (ret < 0)
+			unuse_gang(dentry);
 	}
 	return ret;
 }
@@ -542,7 +580,7 @@ static int spufs_create_gang(struct inode *inode,
 
 static struct file_system_type spufs_type;
 
-long spufs_create(struct path *path, struct dentry *dentry,
+long spufs_create(const struct path *path, struct dentry *dentry,
 		unsigned int flags, umode_t mode, struct file *filp)
 {
 	struct inode *dir = d_inode(path->dentry);
@@ -585,17 +623,12 @@ enum {
 	Opt_uid, Opt_gid, Opt_mode, Opt_debug,
 };
 
-static const struct fs_parameter_spec spufs_param_specs[] = {
+static const struct fs_parameter_spec spufs_fs_parameters[] = {
 	fsparam_u32	("gid",				Opt_gid),
 	fsparam_u32oct	("mode",			Opt_mode),
 	fsparam_u32	("uid",				Opt_uid),
 	fsparam_flag	("debug",			Opt_debug),
 	{}
-};
-
-static const struct fs_parameter_description spufs_fs_parameters = {
-	.name		= "spufs",
-	.specs		= spufs_param_specs,
 };
 
 static int spufs_show_options(struct seq_file *m, struct dentry *root)
@@ -625,7 +658,7 @@ static int spufs_parse_param(struct fs_context *fc, struct fs_parameter *param)
 	kgid_t gid;
 	int opt;
 
-	opt = fs_parse(fc, &spufs_fs_parameters, param, &result);
+	opt = fs_parse(fc, spufs_fs_parameters, param, &result);
 	if (opt < 0)
 		return opt;
 
@@ -659,7 +692,7 @@ static void spufs_exit_isolated_loader(void)
 			get_order(isolated_loader_size));
 }
 
-static void
+static void __init
 spufs_init_isolated_loader(void)
 {
 	struct device_node *dn;
@@ -671,6 +704,7 @@ spufs_init_isolated_loader(void)
 		return;
 
 	loader = of_get_property(dn, "loader", &size);
+	of_node_put(dn);
 	if (!loader)
 		return;
 
@@ -776,7 +810,7 @@ static struct file_system_type spufs_type = {
 	.owner = THIS_MODULE,
 	.name = "spufs",
 	.init_fs_context = spufs_init_fs_context,
-	.parameters	= &spufs_fs_parameters,
+	.parameters	= spufs_fs_parameters,
 	.kill_sb = kill_litter_super,
 };
 MODULE_ALIAS_FS("spufs");
@@ -831,6 +865,7 @@ static void __exit spufs_exit(void)
 }
 module_exit(spufs_exit);
 
+MODULE_DESCRIPTION("SPU file system");
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Arnd Bergmann <arndb@de.ibm.com>");
 

@@ -57,11 +57,10 @@ by the PCI controller driver.
    The PCI controller driver can then create a new EPC device by invoking
    devm_pci_epc_create()/pci_epc_create().
 
-* devm_pci_epc_destroy()/pci_epc_destroy()
+* pci_epc_destroy()
 
-   The PCI controller driver can destroy the EPC device created by either
-   devm_pci_epc_create() or pci_epc_create() using devm_pci_epc_destroy() or
-   pci_epc_destroy().
+   The PCI controller driver can destroy the EPC device created by
+   pci_epc_create() using pci_epc_destroy().
 
 * pci_epc_linkup()
 
@@ -78,8 +77,8 @@ by the PCI controller driver.
    Cleanup the pci_epc_mem structure allocated during pci_epc_mem_init().
 
 
-APIs for the PCI Endpoint Function Driver
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+EPC APIs for the PCI Endpoint Function Driver
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 This section lists the APIs that the PCI Endpoint core provides to be used
 by the PCI endpoint function driver.
@@ -117,8 +116,37 @@ by the PCI endpoint function driver.
    The PCI endpoint function driver should use pci_epc_mem_free_addr() to
    free the memory space allocated using pci_epc_mem_alloc_addr().
 
-Other APIs
-~~~~~~~~~~
+* pci_epc_map_addr()
+
+  A PCI endpoint function driver should use pci_epc_map_addr() to map to a RC
+  PCI address the CPU address of local memory obtained with
+  pci_epc_mem_alloc_addr().
+
+* pci_epc_unmap_addr()
+
+  A PCI endpoint function driver should use pci_epc_unmap_addr() to unmap the
+  CPU address of local memory mapped to a RC address with pci_epc_map_addr().
+
+* pci_epc_mem_map()
+
+  A PCI endpoint controller may impose constraints on the RC PCI addresses that
+  can be mapped. The function pci_epc_mem_map() allows endpoint function
+  drivers to allocate and map controller memory while handling such
+  constraints. This function will determine the size of the memory that must be
+  allocated with pci_epc_mem_alloc_addr() for successfully mapping a RC PCI
+  address range. This function will also indicate the size of the PCI address
+  range that was actually mapped, which can be less than the requested size, as
+  well as the offset into the allocated memory to use for accessing the mapped
+  RC PCI address range.
+
+* pci_epc_mem_unmap()
+
+  A PCI endpoint function driver can use pci_epc_mem_unmap() to unmap and free
+  controller memory that was allocated and mapped using pci_epc_mem_map().
+
+
+Other EPC APIs
+~~~~~~~~~~~~~~
 
 There are other APIs provided by the EPC library. These are used for binding
 the EPF device with EPC device. pci-ep-cfs.c can be used as reference for
@@ -160,8 +188,8 @@ PCI Endpoint Function(EPF) Library
 The EPF library provides APIs to be used by the function driver and the EPC
 library to provide endpoint mode functionality.
 
-APIs for the PCI Endpoint Function Driver
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+EPF APIs for the PCI Endpoint Function Driver
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 This section lists the APIs that the PCI Endpoint core provides to be used
 by the PCI endpoint function driver.
@@ -172,8 +200,8 @@ by the PCI endpoint function driver.
 	 * bind: ops to perform when a EPC device has been bound to EPF device
 	 * unbind: ops to perform when a binding has been lost between a EPC
 	   device and EPF device
-	 * linkup: ops to perform when the EPC device has established a
-	   connection with a host system
+	 * add_cfs: optional ops to create function specific configfs
+	   attributes
 
   The PCI Function driver can then register the PCI EPF driver by using
   pci_epf_register_driver().
@@ -204,8 +232,8 @@ by the PCI endpoint controller library.
    The PCI endpoint controller library invokes pci_epf_linkup() when the
    EPC device has established the connection to the host.
 
-Other APIs
-~~~~~~~~~~
+Other EPF APIs
+~~~~~~~~~~~~~~
 
 There are other APIs provided by the EPF library. These are used to notify
 the function driver when the EPF device is bound to the EPC device.
@@ -214,7 +242,7 @@ pci-ep-cfs.c can be used as reference for using these APIs.
 * pci_epf_create()
 
    Create a new PCI EPF device by passing the name of the PCI EPF device.
-   This name will be used to bind the the EPF device to a EPF driver.
+   This name will be used to bind the EPF device to a EPF driver.
 
 * pci_epf_destroy()
 

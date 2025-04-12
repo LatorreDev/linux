@@ -23,11 +23,11 @@
 #include <linux/sched/task.h>
 #include <linux/sched/signal.h>
 #include <linux/idr.h>
+#include <uapi/linux/wait.h>
+#include "pid_sysctl.h"
 
 static DEFINE_MUTEX(pid_caches_mutex);
 static struct kmem_cache *pid_ns_cachep;
-/* MAX_PID_NS_LEVEL is needed for limiting size of 'struct pid' */
-#define MAX_PID_NS_LEVEL 32
 /* Write once array, filled from the beginning. */
 static struct kmem_cache *pid_cache[MAX_PID_NS_LEVEL];
 
@@ -49,20 +49,15 @@ static struct kmem_cache *create_pid_cachep(unsigned int level)
 		return kc;
 
 	snprintf(name, sizeof(name), "pid_%u", level + 1);
-	len = sizeof(struct pid) + level * sizeof(struct upid);
+	len = struct_size_t(struct pid, numbers, level + 1);
 	mutex_lock(&pid_caches_mutex);
 	/* Name collision forces to do allocation under mutex. */
 	if (!*pkc)
-		*pkc = kmem_cache_create(name, len, 0, SLAB_HWCACHE_ALIGN, 0);
+		*pkc = kmem_cache_create(name, len, 0,
+					 SLAB_HWCACHE_ALIGN | SLAB_ACCOUNT, NULL);
 	mutex_unlock(&pid_caches_mutex);
 	/* current can fail, but someone else can succeed. */
 	return READ_ONCE(*pkc);
-}
-
-static void proc_cleanup_work(struct work_struct *work)
-{
-	struct pid_namespace *ns = container_of(work, struct pid_namespace, proc_work);
-	pid_ns_release_proc(ns);
 }
 
 static struct ucounts *inc_pid_namespaces(struct user_namespace *ns)
@@ -74,6 +69,8 @@ static void dec_pid_namespaces(struct ucounts *ucounts)
 {
 	dec_ucount(ucounts, UCOUNT_PID_NAMESPACES);
 }
+
+static void destroy_pid_namespace_work(struct work_struct *work);
 
 static struct pid_namespace *create_pid_namespace(struct user_namespace *user_ns,
 	struct pid_namespace *parent_pid_ns)
@@ -110,16 +107,27 @@ static struct pid_namespace *create_pid_namespace(struct user_namespace *user_ns
 		goto out_free_idr;
 	ns->ns.ops = &pidns_operations;
 
-	kref_init(&ns->kref);
+	ns->pid_max = PID_MAX_LIMIT;
+	err = register_pidns_sysctls(ns);
+	if (err)
+		goto out_free_inum;
+
+	refcount_set(&ns->ns.count, 1);
 	ns->level = level;
 	ns->parent = get_pid_ns(parent_pid_ns);
 	ns->user_ns = get_user_ns(user_ns);
 	ns->ucounts = ucounts;
 	ns->pid_allocated = PIDNS_ADDING;
-	INIT_WORK(&ns->proc_work, proc_cleanup_work);
+	INIT_WORK(&ns->work, destroy_pid_namespace_work);
+
+#if defined(CONFIG_SYSCTL) && defined(CONFIG_MEMFD_CREATE)
+	ns->memfd_noexec_scope = pidns_memfd_noexec_scope(parent_pid_ns);
+#endif
 
 	return ns;
 
+out_free_inum:
+	ns_free_inum(&ns->ns);
 out_free_idr:
 	idr_destroy(&ns->idr);
 	kmem_cache_free(pid_ns_cachep, ns);
@@ -141,10 +149,26 @@ static void delayed_free_pidns(struct rcu_head *p)
 
 static void destroy_pid_namespace(struct pid_namespace *ns)
 {
+	unregister_pidns_sysctls(ns);
+
 	ns_free_inum(&ns->ns);
 
 	idr_destroy(&ns->idr);
 	call_rcu(&ns->rcu, delayed_free_pidns);
+}
+
+static void destroy_pid_namespace_work(struct work_struct *work)
+{
+	struct pid_namespace *ns =
+		container_of(work, struct pid_namespace, work);
+
+	do {
+		struct pid_namespace *parent;
+
+		parent = ns->parent;
+		destroy_pid_namespace(ns);
+		ns = parent;
+	} while (ns != &init_pid_ns && refcount_dec_and_test(&ns->ns.count));
 }
 
 struct pid_namespace *copy_pid_ns(unsigned long flags,
@@ -157,24 +181,10 @@ struct pid_namespace *copy_pid_ns(unsigned long flags,
 	return create_pid_namespace(user_ns, old_ns);
 }
 
-static void free_pid_ns(struct kref *kref)
-{
-	struct pid_namespace *ns;
-
-	ns = container_of(kref, struct pid_namespace, kref);
-	destroy_pid_namespace(ns);
-}
-
 void put_pid_ns(struct pid_namespace *ns)
 {
-	struct pid_namespace *parent;
-
-	while (ns != &init_pid_ns) {
-		parent = ns->parent;
-		if (!kref_put(&ns->kref, free_pid_ns))
-			break;
-		ns = parent;
-	}
+	if (ns && ns != &init_pid_ns && refcount_dec_and_test(&ns->ns.count))
+		schedule_work(&ns->work);
 }
 EXPORT_SYMBOL_GPL(put_pid_ns);
 
@@ -229,24 +239,32 @@ void zap_pid_ns_processes(struct pid_namespace *pid_ns)
 	 */
 	do {
 		clear_thread_flag(TIF_SIGPENDING);
+		clear_thread_flag(TIF_NOTIFY_SIGNAL);
 		rc = kernel_wait4(-1, NULL, __WALL, NULL);
 	} while (rc != -ECHILD);
 
 	/*
-	 * kernel_wait4() above can't reap the EXIT_DEAD children but we do not
-	 * really care, we could reparent them to the global init. We could
-	 * exit and reap ->child_reaper even if it is not the last thread in
-	 * this pid_ns, free_pid(pid_allocated == 0) calls proc_cleanup_work(),
-	 * pid_ns can not go away until proc_kill_sb() drops the reference.
+	 * kernel_wait4() misses EXIT_DEAD children, and EXIT_ZOMBIE
+	 * process whose parents processes are outside of the pid
+	 * namespace.  Such processes are created with setns()+fork().
 	 *
-	 * But this ns can also have other tasks injected by setns()+fork().
-	 * Again, ignoring the user visible semantics we do not really need
-	 * to wait until they are all reaped, but they can be reparented to
-	 * us and thus we need to ensure that pid->child_reaper stays valid
-	 * until they all go away. See free_pid()->wake_up_process().
+	 * If those EXIT_ZOMBIE processes are not reaped by their
+	 * parents before their parents exit, they will be reparented
+	 * to pid_ns->child_reaper.  Thus pidns->child_reaper needs to
+	 * stay valid until they all go away.
 	 *
-	 * We rely on ignored SIGCHLD, an injected zombie must be autoreaped
-	 * if reparented.
+	 * The code relies on the pid_ns->child_reaper ignoring
+	 * SIGCHILD to cause those EXIT_ZOMBIE processes to be
+	 * autoreaped if reparented.
+	 *
+	 * Semantically it is also desirable to wait for EXIT_ZOMBIE
+	 * processes before allowing the child_reaper to be reaped, as
+	 * that gives the invariant that when the init process of a
+	 * pid namespace is reaped all of the processes in the pid
+	 * namespace are gone.
+	 *
+	 * Once all of the other tasks are gone from the pid_namespace
+	 * free_pid() will awaken this task.
 	 */
 	for (;;) {
 		set_current_state(TASK_INTERRUPTIBLE);
@@ -264,25 +282,20 @@ void zap_pid_ns_processes(struct pid_namespace *pid_ns)
 }
 
 #ifdef CONFIG_CHECKPOINT_RESTORE
-static int pid_ns_ctl_handler(struct ctl_table *table, int write,
-		void __user *buffer, size_t *lenp, loff_t *ppos)
+static int pid_ns_ctl_handler(const struct ctl_table *table, int write,
+		void *buffer, size_t *lenp, loff_t *ppos)
 {
 	struct pid_namespace *pid_ns = task_active_pid_ns(current);
 	struct ctl_table tmp = *table;
 	int ret, next;
 
-	if (write && !ns_capable(pid_ns->user_ns, CAP_SYS_ADMIN))
+	if (write && !checkpoint_restore_ns_capable(pid_ns->user_ns))
 		return -EPERM;
-
-	/*
-	 * Writing directly to ns' last_pid field is OK, since this field
-	 * is volatile in a living namespace anyway and a code writing to
-	 * it should synchronize its usage with external means.
-	 */
 
 	next = idr_get_cursor(&pid_ns->idr) - 1;
 
 	tmp.data = &next;
+	tmp.extra2 = &pid_ns->pid_max;
 	ret = proc_dointvec_minmax(&tmp, write, buffer, lenp, ppos);
 	if (!ret && write)
 		idr_set_cursor(&pid_ns->idr, next + 1);
@@ -290,19 +303,16 @@ static int pid_ns_ctl_handler(struct ctl_table *table, int write,
 	return ret;
 }
 
-extern int pid_max;
-static struct ctl_table pid_ns_ctl_table[] = {
+static const struct ctl_table pid_ns_ctl_table[] = {
 	{
 		.procname = "ns_last_pid",
 		.maxlen = sizeof(int),
 		.mode = 0666, /* permissions are checked in the handler */
 		.proc_handler = pid_ns_ctl_handler,
 		.extra1 = SYSCTL_ZERO,
-		.extra2 = &pid_max,
+		.extra2 = &init_pid_ns.pid_max,
 	},
-	{ }
 };
-static struct ctl_path kern_path[] = { { .procname = "kernel", }, { } };
 #endif	/* CONFIG_CHECKPOINT_RESTORE */
 
 int reboot_pid_ns(struct pid_namespace *pid_ns, int cmd)
@@ -380,13 +390,14 @@ static void pidns_put(struct ns_common *ns)
 	put_pid_ns(to_pid_ns(ns));
 }
 
-static int pidns_install(struct nsproxy *nsproxy, struct ns_common *ns)
+static int pidns_install(struct nsset *nsset, struct ns_common *ns)
 {
+	struct nsproxy *nsproxy = nsset->nsproxy;
 	struct pid_namespace *active = task_active_pid_ns(current);
 	struct pid_namespace *ancestor, *new = to_pid_ns(ns);
 
 	if (!ns_capable(new->user_ns, CAP_SYS_ADMIN) ||
-	    !ns_capable(current_user_ns(), CAP_SYS_ADMIN))
+	    !ns_capable(nsset->cred->user_ns, CAP_SYS_ADMIN))
 		return -EPERM;
 
 	/*
@@ -457,11 +468,13 @@ const struct proc_ns_operations pidns_for_children_operations = {
 
 static __init int pid_namespaces_init(void)
 {
-	pid_ns_cachep = KMEM_CACHE(pid_namespace, SLAB_PANIC);
+	pid_ns_cachep = KMEM_CACHE(pid_namespace, SLAB_PANIC | SLAB_ACCOUNT);
 
 #ifdef CONFIG_CHECKPOINT_RESTORE
-	register_sysctl_paths(kern_path, pid_ns_ctl_table);
+	register_sysctl_init("kernel", pid_ns_ctl_table);
 #endif
+
+	register_pid_ns_sysctl_table_vm();
 	return 0;
 }
 

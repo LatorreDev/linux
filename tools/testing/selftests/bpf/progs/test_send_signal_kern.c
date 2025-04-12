@@ -1,47 +1,69 @@
 // SPDX-License-Identifier: GPL-2.0
 // Copyright (c) 2019 Facebook
-#include <linux/bpf.h>
+#include <vmlinux.h>
 #include <linux/version.h>
-#include "bpf_helpers.h"
+#include <bpf/bpf_helpers.h>
 
-struct {
-	__uint(type, BPF_MAP_TYPE_ARRAY);
-	__uint(max_entries, 1);
-	__type(key, __u32);
-	__type(value, __u64);
-} info_map SEC(".maps");
+struct task_struct *bpf_task_from_pid(int pid) __ksym;
+void bpf_task_release(struct task_struct *p) __ksym;
+int bpf_send_signal_task(struct task_struct *task, int sig, enum pid_type type, u64 value) __ksym;
 
-struct {
-	__uint(type, BPF_MAP_TYPE_ARRAY);
-	__uint(max_entries, 1);
-	__type(key, __u32);
-	__type(value, __u64);
-} status_map SEC(".maps");
+__u32 sig = 0, pid = 0, status = 0, signal_thread = 0, target_pid = 0;
 
-SEC("send_signal_demo")
-int bpf_send_signal_test(void *ctx)
+static __always_inline int bpf_send_signal_test(void *ctx)
 {
-	__u64 *info_val, *status_val;
-	__u32 key = 0, pid, sig;
+	struct task_struct *target_task = NULL;
 	int ret;
+	u64 value;
 
-	status_val = bpf_map_lookup_elem(&status_map, &key);
-	if (!status_val || *status_val != 0)
+	if (status != 0 || pid == 0)
 		return 0;
-
-	info_val = bpf_map_lookup_elem(&info_map, &key);
-	if (!info_val || *info_val == 0)
-		return 0;
-
-	sig = *info_val >> 32;
-	pid = *info_val & 0xffffFFFF;
 
 	if ((bpf_get_current_pid_tgid() >> 32) == pid) {
-		ret = bpf_send_signal(sig);
+		if (target_pid) {
+			target_task = bpf_task_from_pid(target_pid);
+			if (!target_task)
+				return 0;
+			value = 8;
+		}
+
+		if (signal_thread) {
+			if (target_pid)
+				ret = bpf_send_signal_task(target_task, sig, PIDTYPE_PID, value);
+			else
+				ret = bpf_send_signal_thread(sig);
+		} else {
+			if (target_pid)
+				ret = bpf_send_signal_task(target_task, sig, PIDTYPE_TGID, value);
+			else
+				ret = bpf_send_signal(sig);
+		}
 		if (ret == 0)
-			*status_val = 1;
+			status = 1;
 	}
+
+	if (target_task)
+		bpf_task_release(target_task);
 
 	return 0;
 }
+
+SEC("tracepoint/syscalls/sys_enter_nanosleep")
+int send_signal_tp(void *ctx)
+{
+	return bpf_send_signal_test(ctx);
+}
+
+SEC("tracepoint/sched/sched_switch")
+int send_signal_tp_sched(void *ctx)
+{
+	return bpf_send_signal_test(ctx);
+}
+
+SEC("perf_event")
+int send_signal_perf(void *ctx)
+{
+	return bpf_send_signal_test(ctx);
+}
+
 char __license[] SEC("license") = "GPL";

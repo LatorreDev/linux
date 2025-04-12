@@ -311,9 +311,8 @@ int esas2r_init_adapter(struct Scsi_Host *host, struct pci_dev *pcid,
 	sema_init(&a->nvram_semaphore, 1);
 
 	esas2r_fw_event_off(a);
-	snprintf(a->fw_event_q_name, ESAS2R_KOBJ_NAME_LEN, "esas2r/%d",
-		 a->index);
-	a->fw_event_q = create_singlethread_workqueue(a->fw_event_q_name);
+	a->fw_event_q =
+		alloc_ordered_workqueue("esas2r/%d", WQ_MEM_RECLAIM, a->index);
 
 	init_waitqueue_head(&a->buffered_ioctl_waiter);
 	init_waitqueue_head(&a->nvram_waiter);
@@ -412,10 +411,11 @@ int esas2r_init_adapter(struct Scsi_Host *host, struct pci_dev *pcid,
 	esas2r_disable_chip_interrupts(a);
 	esas2r_check_adapter(a);
 
-	if (!esas2r_init_adapter_hw(a, true))
+	if (!esas2r_init_adapter_hw(a, true)) {
 		esas2r_log(ESAS2R_LOG_CRIT, "failed to initialize hardware!");
-	else
+	} else {
 		esas2r_debug("esas2r_init_adapter ok");
+	}
 
 	esas2r_claim_interrupts(a);
 
@@ -439,7 +439,7 @@ static void esas2r_adapter_power_down(struct esas2r_adapter *a,
 	if ((test_bit(AF2_INIT_DONE, &a->flags2))
 	    &&  (!test_bit(AF_DEGRADED_MODE, &a->flags))) {
 		if (!power_management) {
-			del_timer_sync(&a->timer);
+			timer_delete_sync(&a->timer);
 			tasklet_kill(&a->tasklet);
 		}
 		esas2r_power_down(a);
@@ -640,53 +640,27 @@ void esas2r_kill_adapter(int i)
 	}
 }
 
-int esas2r_suspend(struct pci_dev *pdev, pm_message_t state)
+static int __maybe_unused esas2r_suspend(struct device *dev)
 {
-	struct Scsi_Host *host = pci_get_drvdata(pdev);
-	u32 device_state;
+	struct Scsi_Host *host = dev_get_drvdata(dev);
 	struct esas2r_adapter *a = (struct esas2r_adapter *)host->hostdata;
 
-	esas2r_log_dev(ESAS2R_LOG_INFO, &(pdev->dev), "suspending adapter()");
+	esas2r_log_dev(ESAS2R_LOG_INFO, dev, "suspending adapter()");
 	if (!a)
 		return -ENODEV;
 
 	esas2r_adapter_power_down(a, 1);
-	device_state = pci_choose_state(pdev, state);
-	esas2r_log_dev(ESAS2R_LOG_INFO, &(pdev->dev),
-		       "pci_save_state() called");
-	pci_save_state(pdev);
-	esas2r_log_dev(ESAS2R_LOG_INFO, &(pdev->dev),
-		       "pci_disable_device() called");
-	pci_disable_device(pdev);
-	esas2r_log_dev(ESAS2R_LOG_INFO, &(pdev->dev),
-		       "pci_set_power_state() called");
-	pci_set_power_state(pdev, device_state);
-	esas2r_log_dev(ESAS2R_LOG_INFO, &(pdev->dev), "esas2r_suspend(): 0");
+	esas2r_log_dev(ESAS2R_LOG_INFO, dev, "esas2r_suspend(): 0");
 	return 0;
 }
 
-int esas2r_resume(struct pci_dev *pdev)
+static int __maybe_unused esas2r_resume(struct device *dev)
 {
-	struct Scsi_Host *host = pci_get_drvdata(pdev);
+	struct Scsi_Host *host = dev_get_drvdata(dev);
 	struct esas2r_adapter *a = (struct esas2r_adapter *)host->hostdata;
-	int rez;
+	int rez = 0;
 
-	esas2r_log_dev(ESAS2R_LOG_INFO, &(pdev->dev), "resuming adapter()");
-	esas2r_log_dev(ESAS2R_LOG_INFO, &(pdev->dev),
-		       "pci_set_power_state(PCI_D0) "
-		       "called");
-	pci_set_power_state(pdev, PCI_D0);
-	esas2r_log_dev(ESAS2R_LOG_INFO, &(pdev->dev),
-		       "pci_enable_wake(PCI_D0, 0) "
-		       "called");
-	pci_enable_wake(pdev, PCI_D0, 0);
-	esas2r_log_dev(ESAS2R_LOG_INFO, &(pdev->dev),
-		       "pci_restore_state() called");
-	pci_restore_state(pdev);
-	esas2r_log_dev(ESAS2R_LOG_INFO, &(pdev->dev),
-		       "pci_enable_device() called");
-	rez = pci_enable_device(pdev);
-	pci_set_master(pdev);
+	esas2r_log_dev(ESAS2R_LOG_INFO, dev, "resuming adapter()");
 
 	if (!a) {
 		rez = -ENODEV;
@@ -730,10 +704,12 @@ int esas2r_resume(struct pci_dev *pdev)
 	}
 
 error_exit:
-	esas2r_log_dev(ESAS2R_LOG_CRIT, &(pdev->dev), "esas2r_resume(): %d",
+	esas2r_log_dev(ESAS2R_LOG_CRIT, dev, "esas2r_resume(): %d",
 		       rez);
 	return rez;
 }
+
+SIMPLE_DEV_PM_OPS(esas2r_pm_ops, esas2r_suspend, esas2r_resume);
 
 bool esas2r_set_degraded_mode(struct esas2r_adapter *a, char *error_str)
 {
@@ -1236,7 +1212,7 @@ static bool esas2r_format_init_msg(struct esas2r_adapter *a,
 			a->init_msg = ESAS2R_INIT_MSG_GET_INIT;
 			break;
 		}
-		/* fall through */
+		fallthrough;
 
 	case ESAS2R_INIT_MSG_GET_INIT:
 		if (msg == ESAS2R_INIT_MSG_GET_INIT) {
@@ -1250,7 +1226,7 @@ static bool esas2r_format_init_msg(struct esas2r_adapter *a,
 				esas2r_hdebug("FAILED");
 			}
 		}
-		/* fall through */
+		fallthrough;
 
 	default:
 		rq->req_stat = RS_SUCCESS;

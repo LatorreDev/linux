@@ -77,9 +77,7 @@ static int saa7164_vbi_buffers_alloc(struct saa7164_port *port)
 	/* TODO: NTSC SPECIFIC */
 	/* Init and establish defaults */
 	params->samplesperline = 1440;
-	params->numberoflines = 12;
 	params->numberoflines = 18;
-	params->pitch = 1600;
 	params->pitch = 1440;
 	params->numpagetables = 2 +
 		((params->numberoflines * params->pitch) / PAGE_SIZE);
@@ -201,7 +199,6 @@ static int vidioc_querycap(struct file *file, void  *priv,
 	strscpy(cap->driver, dev->name, sizeof(cap->driver));
 	strscpy(cap->card, saa7164_boards[dev->board].name,
 		sizeof(cap->card));
-	sprintf(cap->bus_info, "PCI:%s", pci_name(dev->pci));
 	cap->capabilities = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_READWRITE |
 			    V4L2_CAP_TUNER | V4L2_CAP_VBI_CAPTURE |
 			    V4L2_CAP_DEVICE_CAPS;
@@ -703,8 +700,7 @@ int saa7164_vbi_register(struct saa7164_port *port)
 
 	dprintk(DBGLVL_VBI, "%s()\n", __func__);
 
-	if (port->type != SAA7164_MPEG_VBI)
-		BUG();
+	BUG_ON(port->type != SAA7164_MPEG_VBI);
 
 	/* Sanity check that the PCI configuration space is active */
 	if (port->hwcfg.BARLocation == 0) {
@@ -756,8 +752,7 @@ void saa7164_vbi_unregister(struct saa7164_port *port)
 
 	dprintk(DBGLVL_VBI, "%s(port=%d)\n", __func__, port->nr);
 
-	if (port->type != SAA7164_MPEG_VBI)
-		BUG();
+	BUG_ON(port->type != SAA7164_MPEG_VBI);
 
 	if (port->v4l_device) {
 		if (port->v4l_device->minor != -1)

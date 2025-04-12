@@ -63,7 +63,7 @@ notrace static __always_inline struct vvar_data *get_vvar_data(void)
 	return (struct vvar_data *) ret;
 }
 
-notrace static long vdso_fallback_gettime(long clock, struct timespec *ts)
+notrace static long vdso_fallback_gettime(long clock, struct __kernel_old_timespec *ts)
 {
 	register long num __asm__("g1") = __NR_clock_gettime;
 	register long o0 __asm__("o0") = clock;
@@ -74,7 +74,7 @@ notrace static long vdso_fallback_gettime(long clock, struct timespec *ts)
 	return o0;
 }
 
-notrace static long vdso_fallback_gettimeofday(struct timeval *tv, struct timezone *tz)
+notrace static long vdso_fallback_gettimeofday(struct __kernel_old_timeval *tv, struct timezone *tz)
 {
 	register long num __asm__("g1") = __NR_gettimeofday;
 	register long o0 __asm__("o0") = (long) tv;
@@ -86,6 +86,11 @@ notrace static long vdso_fallback_gettimeofday(struct timeval *tv, struct timezo
 }
 
 #ifdef	CONFIG_SPARC64
+notrace static __always_inline u64 __shr64(u64 val, int amt)
+{
+	return val >> amt;
+}
+
 notrace static __always_inline u64 vread_tick(void)
 {
 	u64	ret;
@@ -102,6 +107,21 @@ notrace static __always_inline u64 vread_tick_stick(void)
 	return ret;
 }
 #else
+notrace static __always_inline u64 __shr64(u64 val, int amt)
+{
+	u64 ret;
+
+	__asm__ __volatile__("sllx %H1, 32, %%g1\n\t"
+			     "srl %L1, 0, %L1\n\t"
+			     "or %%g1, %L1, %%g1\n\t"
+			     "srlx %%g1, %2, %L0\n\t"
+			     "srlx %L0, 32, %H0"
+			     : "=r" (ret)
+			     : "r" (val), "r" (amt)
+			     : "g1");
+	return ret;
+}
+
 notrace static __always_inline u64 vread_tick(void)
 {
 	register unsigned long long ret asm("o4");
@@ -144,7 +164,7 @@ notrace static __always_inline u64 vgetsns_stick(struct vvar_data *vvar)
 }
 
 notrace static __always_inline int do_realtime(struct vvar_data *vvar,
-					       struct timespec *ts)
+					       struct __kernel_old_timespec *ts)
 {
 	unsigned long seq;
 	u64 ns;
@@ -154,7 +174,7 @@ notrace static __always_inline int do_realtime(struct vvar_data *vvar,
 		ts->tv_sec = vvar->wall_time_sec;
 		ns = vvar->wall_time_snsec;
 		ns += vgetsns(vvar);
-		ns >>= vvar->clock.shift;
+		ns = __shr64(ns, vvar->clock.shift);
 	} while (unlikely(vvar_read_retry(vvar, seq)));
 
 	ts->tv_sec += __iter_div_u64_rem(ns, NSEC_PER_SEC, &ns);
@@ -164,7 +184,7 @@ notrace static __always_inline int do_realtime(struct vvar_data *vvar,
 }
 
 notrace static __always_inline int do_realtime_stick(struct vvar_data *vvar,
-						     struct timespec *ts)
+						     struct __kernel_old_timespec *ts)
 {
 	unsigned long seq;
 	u64 ns;
@@ -174,7 +194,7 @@ notrace static __always_inline int do_realtime_stick(struct vvar_data *vvar,
 		ts->tv_sec = vvar->wall_time_sec;
 		ns = vvar->wall_time_snsec;
 		ns += vgetsns_stick(vvar);
-		ns >>= vvar->clock.shift;
+		ns = __shr64(ns, vvar->clock.shift);
 	} while (unlikely(vvar_read_retry(vvar, seq)));
 
 	ts->tv_sec += __iter_div_u64_rem(ns, NSEC_PER_SEC, &ns);
@@ -184,7 +204,7 @@ notrace static __always_inline int do_realtime_stick(struct vvar_data *vvar,
 }
 
 notrace static __always_inline int do_monotonic(struct vvar_data *vvar,
-						struct timespec *ts)
+						struct __kernel_old_timespec *ts)
 {
 	unsigned long seq;
 	u64 ns;
@@ -194,7 +214,7 @@ notrace static __always_inline int do_monotonic(struct vvar_data *vvar,
 		ts->tv_sec = vvar->monotonic_time_sec;
 		ns = vvar->monotonic_time_snsec;
 		ns += vgetsns(vvar);
-		ns >>= vvar->clock.shift;
+		ns = __shr64(ns, vvar->clock.shift);
 	} while (unlikely(vvar_read_retry(vvar, seq)));
 
 	ts->tv_sec += __iter_div_u64_rem(ns, NSEC_PER_SEC, &ns);
@@ -204,7 +224,7 @@ notrace static __always_inline int do_monotonic(struct vvar_data *vvar,
 }
 
 notrace static __always_inline int do_monotonic_stick(struct vvar_data *vvar,
-						      struct timespec *ts)
+						      struct __kernel_old_timespec *ts)
 {
 	unsigned long seq;
 	u64 ns;
@@ -214,7 +234,7 @@ notrace static __always_inline int do_monotonic_stick(struct vvar_data *vvar,
 		ts->tv_sec = vvar->monotonic_time_sec;
 		ns = vvar->monotonic_time_snsec;
 		ns += vgetsns_stick(vvar);
-		ns >>= vvar->clock.shift;
+		ns = __shr64(ns, vvar->clock.shift);
 	} while (unlikely(vvar_read_retry(vvar, seq)));
 
 	ts->tv_sec += __iter_div_u64_rem(ns, NSEC_PER_SEC, &ns);
@@ -224,7 +244,7 @@ notrace static __always_inline int do_monotonic_stick(struct vvar_data *vvar,
 }
 
 notrace static int do_realtime_coarse(struct vvar_data *vvar,
-				      struct timespec *ts)
+				      struct __kernel_old_timespec *ts)
 {
 	unsigned long seq;
 
@@ -237,7 +257,7 @@ notrace static int do_realtime_coarse(struct vvar_data *vvar,
 }
 
 notrace static int do_monotonic_coarse(struct vvar_data *vvar,
-				       struct timespec *ts)
+				       struct __kernel_old_timespec *ts)
 {
 	unsigned long seq;
 
@@ -251,7 +271,7 @@ notrace static int do_monotonic_coarse(struct vvar_data *vvar,
 }
 
 notrace int
-__vdso_clock_gettime(clockid_t clock, struct timespec *ts)
+__vdso_clock_gettime(clockid_t clock, struct __kernel_old_timespec *ts)
 {
 	struct vvar_data *vvd = get_vvar_data();
 
@@ -275,11 +295,11 @@ __vdso_clock_gettime(clockid_t clock, struct timespec *ts)
 	return vdso_fallback_gettime(clock, ts);
 }
 int
-clock_gettime(clockid_t, struct timespec *)
+clock_gettime(clockid_t, struct __kernel_old_timespec *)
 	__attribute__((weak, alias("__vdso_clock_gettime")));
 
 notrace int
-__vdso_clock_gettime_stick(clockid_t clock, struct timespec *ts)
+__vdso_clock_gettime_stick(clockid_t clock, struct __kernel_old_timespec *ts)
 {
 	struct vvar_data *vvd = get_vvar_data();
 
@@ -304,15 +324,15 @@ __vdso_clock_gettime_stick(clockid_t clock, struct timespec *ts)
 }
 
 notrace int
-__vdso_gettimeofday(struct timeval *tv, struct timezone *tz)
+__vdso_gettimeofday(struct __kernel_old_timeval *tv, struct timezone *tz)
 {
 	struct vvar_data *vvd = get_vvar_data();
 
 	if (likely(vvd->vclock_mode != VCLOCK_NONE)) {
 		if (likely(tv != NULL)) {
 			union tstv_t {
-				struct timespec ts;
-				struct timeval tv;
+				struct __kernel_old_timespec ts;
+				struct __kernel_old_timeval tv;
 			} *tstv = (union tstv_t *) tv;
 			do_realtime(vvd, &tstv->ts);
 			/*
@@ -336,19 +356,19 @@ __vdso_gettimeofday(struct timeval *tv, struct timezone *tz)
 	return vdso_fallback_gettimeofday(tv, tz);
 }
 int
-gettimeofday(struct timeval *, struct timezone *)
+gettimeofday(struct __kernel_old_timeval *, struct timezone *)
 	__attribute__((weak, alias("__vdso_gettimeofday")));
 
 notrace int
-__vdso_gettimeofday_stick(struct timeval *tv, struct timezone *tz)
+__vdso_gettimeofday_stick(struct __kernel_old_timeval *tv, struct timezone *tz)
 {
 	struct vvar_data *vvd = get_vvar_data();
 
 	if (likely(vvd->vclock_mode != VCLOCK_NONE)) {
 		if (likely(tv != NULL)) {
 			union tstv_t {
-				struct timespec ts;
-				struct timeval tv;
+				struct __kernel_old_timespec ts;
+				struct __kernel_old_timeval tv;
 			} *tstv = (union tstv_t *) tv;
 			do_realtime_stick(vvd, &tstv->ts);
 			/*

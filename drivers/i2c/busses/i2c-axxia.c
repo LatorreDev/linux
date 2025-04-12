@@ -118,7 +118,7 @@
 #define SDA_HOLD_TIME		0x90
 
 /**
- * axxia_i2c_dev - I2C device context
+ * struct axxia_i2c_dev - I2C device context
  * @base: pointer to register struct
  * @msg: pointer to current message
  * @msg_r: pointer to current read message (sequence transfer)
@@ -131,6 +131,8 @@
  * @i2c_clk: clock reference for i2c input clock
  * @bus_clk_rate: current i2c bus clock rate
  * @last: a flag indicating is this is last message in transfer
+ * @slave: associated &i2c_client
+ * @irq: platform device IRQ number
  */
 struct axxia_i2c_dev {
 	void __iomem *base;
@@ -165,7 +167,7 @@ static void i2c_int_enable(struct axxia_i2c_dev *idev, u32 mask)
 	writel(int_en | mask, idev->base + MST_INT_ENABLE);
 }
 
-/**
+/*
  * ns_to_clk - Convert time (ns) to clock cycles for the given clock frequency.
  */
 static u32 ns_to_clk(u64 ns, u32 clk_mhz)
@@ -199,7 +201,7 @@ static int axxia_i2c_init(struct axxia_i2c_dev *idev)
 	/* Enable Master Mode */
 	writel(0x1, idev->base + GLOBAL_CONTROL);
 
-	if (idev->bus_clk_rate <= 100000) {
+	if (idev->bus_clk_rate <= I2C_MAX_STANDARD_MODE_FREQ) {
 		/* Standard mode SCL 50/50, tSU:DAT = 250 ns */
 		t_high = divisor * 1 / 2;
 		t_low = divisor * 1 / 2;
@@ -253,17 +255,12 @@ static int i2c_m_rd(const struct i2c_msg *msg)
 	return (msg->flags & I2C_M_RD) != 0;
 }
 
-static int i2c_m_ten(const struct i2c_msg *msg)
-{
-	return (msg->flags & I2C_M_TEN) != 0;
-}
-
 static int i2c_m_recv_len(const struct i2c_msg *msg)
 {
 	return (msg->flags & I2C_M_RECV_LEN) != 0;
 }
 
-/**
+/*
  * axxia_i2c_empty_rx_fifo - Fetch data from RX FIFO and update SMBus block
  * transfer length if this is the first byte of such a transfer.
  */
@@ -295,7 +292,7 @@ static int axxia_i2c_empty_rx_fifo(struct axxia_i2c_dev *idev)
 	return 0;
 }
 
-/**
+/*
  * axxia_i2c_fill_tx_fifo - Fill TX FIFO from current message buffer.
  * @return: Number of bytes left to transfer.
  */
@@ -437,20 +434,10 @@ static void axxia_i2c_set_addr(struct axxia_i2c_dev *idev, struct i2c_msg *msg)
 {
 	u32 addr_1, addr_2;
 
-	if (i2c_m_ten(msg)) {
-		/* 10-bit address
-		 *   addr_1: 5'b11110 | addr[9:8] | (R/nW)
-		 *   addr_2: addr[7:0]
-		 */
-		addr_1 = 0xF0 | ((msg->addr >> 7) & 0x06);
-		if (i2c_m_rd(msg))
-			addr_1 |= 1;	/* Set the R/nW bit of the address */
-		addr_2 = msg->addr & 0xFF;
+	if (msg->flags & I2C_M_TEN) {
+		addr_1 = i2c_10bit_addr_hi_from_msg(msg);
+		addr_2 = i2c_10bit_addr_lo_from_msg(msg);
 	} else {
-		/* 7-bit address
-		 *   addr_1: addr[6:0] | (R/nW)
-		 *   addr_2: dont care
-		 */
 		addr_1 = i2c_8bit_addr_from_msg(msg);
 		addr_2 = 0;
 	}
@@ -734,7 +721,6 @@ static int axxia_i2c_probe(struct platform_device *pdev)
 {
 	struct device_node *np = pdev->dev.of_node;
 	struct axxia_i2c_dev *idev = NULL;
-	struct resource *res;
 	void __iomem *base;
 	int ret = 0;
 
@@ -742,16 +728,13 @@ static int axxia_i2c_probe(struct platform_device *pdev)
 	if (!idev)
 		return -ENOMEM;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	base = devm_ioremap_resource(&pdev->dev, res);
+	base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(base))
 		return PTR_ERR(base);
 
 	idev->irq = platform_get_irq(pdev, 0);
-	if (idev->irq < 0) {
-		dev_err(&pdev->dev, "missing interrupt resource\n");
+	if (idev->irq < 0)
 		return idev->irq;
-	}
 
 	idev->i2c_clk = devm_clk_get(&pdev->dev, "i2c");
 	if (IS_ERR(idev->i2c_clk)) {
@@ -765,7 +748,7 @@ static int axxia_i2c_probe(struct platform_device *pdev)
 
 	of_property_read_u32(np, "clock-frequency", &idev->bus_clk_rate);
 	if (idev->bus_clk_rate == 0)
-		idev->bus_clk_rate = 100000;	/* default clock rate */
+		idev->bus_clk_rate = I2C_MAX_STANDARD_MODE_FREQ;	/* default clock rate */
 
 	ret = clk_prepare_enable(idev->i2c_clk);
 	if (ret) {
@@ -787,7 +770,7 @@ static int axxia_i2c_probe(struct platform_device *pdev)
 	}
 
 	i2c_set_adapdata(&idev->adapter, idev);
-	strlcpy(idev->adapter.name, pdev->name, sizeof(idev->adapter.name));
+	strscpy(idev->adapter.name, pdev->name, sizeof(idev->adapter.name));
 	idev->adapter.owner = THIS_MODULE;
 	idev->adapter.algo = &axxia_i2c_algo;
 	idev->adapter.bus_recovery_info = &axxia_i2c_recovery_info;
@@ -808,14 +791,12 @@ error_disable_clk:
 	return ret;
 }
 
-static int axxia_i2c_remove(struct platform_device *pdev)
+static void axxia_i2c_remove(struct platform_device *pdev)
 {
 	struct axxia_i2c_dev *idev = platform_get_drvdata(pdev);
 
 	clk_disable_unprepare(idev->i2c_clk);
 	i2c_del_adapter(&idev->adapter);
-
-	return 0;
 }
 
 /* Match table for of_platform binding */

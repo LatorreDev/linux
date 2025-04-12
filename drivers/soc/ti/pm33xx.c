@@ -16,8 +16,10 @@
 #include <linux/module.h>
 #include <linux/nvmem-consumer.h>
 #include <linux/of.h>
+#include <linux/of_address.h>
 #include <linux/platform_data/pm33xx.h>
 #include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
 #include <linux/rtc.h>
 #include <linux/rtc/rtc-omap.h>
 #include <linux/sizes.h>
@@ -39,6 +41,8 @@
 #define GIC_INT_SET_PENDING_BASE 0x200
 #define AM43XX_GIC_DIST_BASE	0x48241000
 
+static void __iomem *rtc_base_virt;
+static struct clk *rtc_fck;
 static u32 rtc_magic_val;
 
 static int (*am33xx_do_wfi_sram)(unsigned long unused);
@@ -90,7 +94,7 @@ static int am33xx_push_sram_idle(void)
 	ro_sram_data.amx3_pm_sram_data_virt = ocmcram_location_data;
 	ro_sram_data.amx3_pm_sram_data_phys =
 		gen_pool_virt_to_phys(sram_pool_data, ocmcram_location_data);
-	ro_sram_data.rtc_base_virt = pm_ops->get_rtc_base_addr();
+	ro_sram_data.rtc_base_virt = rtc_base_virt;
 
 	/* Save physical address to calculate resume offset during pm init */
 	am33xx_do_wfi_sram_phys = gen_pool_virt_to_phys(sram_pool,
@@ -130,6 +134,17 @@ static int am33xx_push_sram_idle(void)
 	return 0;
 }
 
+static int am33xx_do_sram_idle(u32 wfi_flags)
+{
+	if (!m3_ipc || !pm_ops)
+		return 0;
+
+	if (wfi_flags & WFI_FLAG_WAKE_M3)
+		m3_ipc->ops->prepare_low_power(m3_ipc, WKUP_M3_IDLE);
+
+	return pm_ops->cpu_suspend(am33xx_do_wfi_sram, wfi_flags);
+}
+
 static int __init am43xx_map_gic(void)
 {
 	gic_dist_base = ioremap(AM43XX_GIC_DIST_BASE, SZ_4K);
@@ -145,7 +160,7 @@ static struct wkup_m3_wakeup_src rtc_wake_src(void)
 {
 	u32 i;
 
-	i = __raw_readl(pm_ops->get_rtc_base_addr() + 0x44) & 0x40;
+	i = __raw_readl(rtc_base_virt + 0x44) & 0x40;
 
 	if (i) {
 		retrigger_irq = rtc_alarm_wakeup.irq_nr;
@@ -164,13 +179,24 @@ static int am33xx_rtc_only_idle(unsigned long wfi_flags)
 	return 0;
 }
 
+/*
+ * Note that the RTC module clock must be re-enabled only for rtc+ddr suspend.
+ * And looks like the module can stay in SYSC_IDLE_SMART_WKUP mode configured
+ * by the interconnect code just fine for both rtc+ddr suspend and retention
+ * suspend.
+ */
 static int am33xx_pm_suspend(suspend_state_t suspend_state)
 {
 	int i, ret = 0;
 
 	if (suspend_state == PM_SUSPEND_MEM &&
 	    pm_ops->check_off_mode_enable()) {
-		pm_ops->prepare_rtc_suspend();
+		ret = clk_prepare_enable(rtc_fck);
+		if (ret) {
+			dev_err(pm33xx_dev, "Failed to enable clock: %i\n", ret);
+			return ret;
+		}
+
 		pm_ops->save_context();
 		suspend_wfi_flags |= WFI_FLAG_RTC_ONLY;
 		clk_save_context();
@@ -223,7 +249,7 @@ static int am33xx_pm_suspend(suspend_state_t suspend_state)
 	}
 
 	if (suspend_state == PM_SUSPEND_MEM && pm_ops->check_off_mode_enable())
-		pm_ops->prepare_rtc_resume();
+		clk_disable_unprepare(rtc_fck);
 
 	return ret;
 }
@@ -259,6 +285,8 @@ static int am33xx_pm_begin(suspend_state_t state)
 	} else {
 		rtc_only_idle = 0;
 	}
+
+	pm_ops->begin_suspend();
 
 	switch (state) {
 	case PM_SUSPEND_MEM:
@@ -301,6 +329,8 @@ static void am33xx_pm_end(void)
 	}
 
 	rtc_only_idle = 0;
+
+	pm_ops->finish_suspend();
 }
 
 static int am33xx_pm_valid(suspend_state_t state)
@@ -353,54 +383,44 @@ static void am33xx_pm_free_sram(void)
  */
 static int am33xx_pm_alloc_sram(void)
 {
-	struct device_node *np;
-	int ret = 0;
+	struct device_node *np __free(device_node) =
+			of_find_compatible_node(NULL, NULL, "ti,omap3-mpu");
 
-	np = of_find_compatible_node(NULL, NULL, "ti,omap3-mpu");
 	if (!np) {
 		np = of_find_compatible_node(NULL, NULL, "ti,omap4-mpu");
-		if (!np) {
-			dev_err(pm33xx_dev, "PM: %s: Unable to find device node for mpu\n",
-				__func__);
-			return -ENODEV;
-		}
+		if (!np)
+			return dev_err_probe(pm33xx_dev, -ENODEV,
+					     "PM: %s: Unable to find device node for mpu\n",
+					     __func__);
 	}
 
 	sram_pool = of_gen_pool_get(np, "pm-sram", 0);
-	if (!sram_pool) {
-		dev_err(pm33xx_dev, "PM: %s: Unable to get sram pool for ocmcram\n",
-			__func__);
-		ret = -ENODEV;
-		goto mpu_put_node;
-	}
+	if (!sram_pool)
+		return dev_err_probe(pm33xx_dev, -ENODEV,
+				     "PM: %s: Unable to get sram pool for ocmcram\n",
+				     __func__);
 
 	sram_pool_data = of_gen_pool_get(np, "pm-sram", 1);
-	if (!sram_pool_data) {
-		dev_err(pm33xx_dev, "PM: %s: Unable to get sram data pool for ocmcram\n",
-			__func__);
-		ret = -ENODEV;
-		goto mpu_put_node;
-	}
+	if (!sram_pool_data)
+		return dev_err_probe(pm33xx_dev, -ENODEV,
+				     "PM: %s: Unable to get sram data pool for ocmcram\n",
+				     __func__);
 
 	ocmcram_location = gen_pool_alloc(sram_pool, *pm_sram->do_wfi_sz);
-	if (!ocmcram_location) {
-		dev_err(pm33xx_dev, "PM: %s: Unable to allocate memory from ocmcram\n",
-			__func__);
-		ret = -ENOMEM;
-		goto mpu_put_node;
-	}
+	if (!ocmcram_location)
+		return dev_err_probe(pm33xx_dev, -ENOMEM,
+				     "PM: %s: Unable to allocate memory from ocmcram\n",
+				     __func__);
 
 	ocmcram_location_data = gen_pool_alloc(sram_pool_data,
 					       sizeof(struct emif_regs_amx3));
 	if (!ocmcram_location_data) {
-		dev_err(pm33xx_dev, "PM: Unable to allocate memory from ocmcram\n");
 		gen_pool_free(sram_pool, ocmcram_location, *pm_sram->do_wfi_sz);
-		ret = -ENOMEM;
+		return dev_err_probe(pm33xx_dev, -ENOMEM,
+				     "PM: Unable to allocate memory from ocmcram\n");
 	}
 
-mpu_put_node:
-	of_node_put(np);
-	return ret;
+	return 0;
 }
 
 static int am33xx_pm_rtc_setup(void)
@@ -408,14 +428,28 @@ static int am33xx_pm_rtc_setup(void)
 	struct device_node *np;
 	unsigned long val = 0;
 	struct nvmem_device *nvmem;
+	int error;
 
 	np = of_find_node_by_name(NULL, "rtc");
 
 	if (of_device_is_available(np)) {
+		/* RTC interconnect target module clock */
+		rtc_fck = of_clk_get_by_name(np->parent, "fck");
+		if (IS_ERR(rtc_fck))
+			return PTR_ERR(rtc_fck);
+
+		rtc_base_virt = of_iomap(np, 0);
+		if (!rtc_base_virt) {
+			pr_warn("PM: could not iomap rtc\n");
+			error = -ENODEV;
+			goto err_clk_put;
+		}
+
 		omap_rtc = rtc_class_open("rtc0");
 		if (!omap_rtc) {
-			pr_warn("PM: rtc0 not available");
-			return -EPROBE_DEFER;
+			pr_warn("PM: rtc0 not available\n");
+			error = -EPROBE_DEFER;
+			goto err_iounmap;
 		}
 
 		nvmem = devm_nvmem_device_get(&omap_rtc->dev,
@@ -437,6 +471,13 @@ static int am33xx_pm_rtc_setup(void)
 	}
 
 	return 0;
+
+err_iounmap:
+	iounmap(rtc_base_virt);
+err_clk_put:
+	clk_put(rtc_fck);
+
+	return error;
 }
 
 static int am33xx_pm_probe(struct platform_device *pdev)
@@ -476,7 +517,7 @@ static int am33xx_pm_probe(struct platform_device *pdev)
 
 	ret = am33xx_pm_alloc_sram();
 	if (ret)
-		return ret;
+		goto err_wkup_m3_ipc_put;
 
 	ret = am33xx_pm_rtc_setup();
 	if (ret)
@@ -484,7 +525,7 @@ static int am33xx_pm_probe(struct platform_device *pdev)
 
 	ret = am33xx_push_sram_idle();
 	if (ret)
-		goto err_free_sram;
+		goto err_unsetup_rtc;
 
 	am33xx_pm_set_ipc_ops();
 
@@ -503,29 +544,46 @@ static int am33xx_pm_probe(struct platform_device *pdev)
 	suspend_wfi_flags |= WFI_FLAG_WAKE_M3;
 #endif /* CONFIG_SUSPEND */
 
-	ret = pm_ops->init();
+	pm_runtime_enable(dev);
+	ret = pm_runtime_resume_and_get(dev);
+	if (ret < 0)
+		goto err_pm_runtime_disable;
+
+	ret = pm_ops->init(am33xx_do_sram_idle);
 	if (ret) {
 		dev_err(dev, "Unable to call core pm init!\n");
 		ret = -ENODEV;
-		goto err_put_wkup_m3_ipc;
+		goto err_pm_runtime_put;
 	}
 
 	return 0;
 
-err_put_wkup_m3_ipc:
-	wkup_m3_ipc_put(m3_ipc);
+err_pm_runtime_put:
+	pm_runtime_put_sync(dev);
+err_pm_runtime_disable:
+	pm_runtime_disable(dev);
+err_unsetup_rtc:
+	iounmap(rtc_base_virt);
+	clk_put(rtc_fck);
 err_free_sram:
 	am33xx_pm_free_sram();
 	pm33xx_dev = NULL;
+err_wkup_m3_ipc_put:
+	wkup_m3_ipc_put(m3_ipc);
 	return ret;
 }
 
-static int am33xx_pm_remove(struct platform_device *pdev)
+static void am33xx_pm_remove(struct platform_device *pdev)
 {
+	pm_runtime_put_sync(&pdev->dev);
+	pm_runtime_disable(&pdev->dev);
+	if (pm_ops->deinit)
+		pm_ops->deinit();
 	suspend_set_ops(NULL);
 	wkup_m3_ipc_put(m3_ipc);
 	am33xx_pm_free_sram();
-	return 0;
+	iounmap(rtc_base_virt);
+	clk_put(rtc_fck);
 }
 
 static struct platform_driver am33xx_pm_driver = {

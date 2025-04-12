@@ -30,10 +30,10 @@ static const struct slim_device_id *slim_match(const struct slim_device_id *id,
 	return NULL;
 }
 
-static int slim_device_match(struct device *dev, struct device_driver *drv)
+static int slim_device_match(struct device *dev, const struct device_driver *drv)
 {
 	struct slim_device *sbdev = to_slim_device(dev);
-	struct slim_driver *sbdrv = to_slim_driver(drv);
+	const struct slim_driver *sbdrv = to_slim_driver(drv);
 
 	/* Attempt an OF style match first */
 	if (of_driver_match_device(dev, drv))
@@ -81,7 +81,7 @@ static int slim_device_probe(struct device *dev)
 	return ret;
 }
 
-static int slim_device_remove(struct device *dev)
+static void slim_device_remove(struct device *dev)
 {
 	struct slim_device *sbdev = to_slim_device(dev);
 	struct slim_driver *sbdrv;
@@ -91,18 +91,16 @@ static int slim_device_remove(struct device *dev)
 		if (sbdrv->remove)
 			sbdrv->remove(sbdev);
 	}
-
-	return 0;
 }
 
-static int slim_device_uevent(struct device *dev, struct kobj_uevent_env *env)
+static int slim_device_uevent(const struct device *dev, struct kobj_uevent_env *env)
 {
-	struct slim_device *sbdev = to_slim_device(dev);
+	const struct slim_device *sbdev = to_slim_device(dev);
 
 	return add_uevent_var(env, "MODALIAS=slim:%s", dev_name(&sbdev->dev));
 }
 
-struct bus_type slimbus_bus = {
+const struct bus_type slimbus_bus = {
 	.name		= "slimbus",
 	.match		= slim_device_match,
 	.probe		= slim_device_probe,
@@ -162,9 +160,8 @@ static int slim_add_device(struct slim_controller *ctrl,
 	sbdev->ctrl = ctrl;
 	INIT_LIST_HEAD(&sbdev->stream_list);
 	spin_lock_init(&sbdev->stream_list_lock);
-
-	if (node)
-		sbdev->dev.of_node = of_node_get(node);
+	sbdev->dev.of_node = of_node_get(node);
+	sbdev->dev.fwnode = of_fwnode_handle(node);
 
 	dev_set_name(&sbdev->dev, "%x:%x:%x:%x",
 				  sbdev->e_addr.manf_id,
@@ -253,7 +250,7 @@ int slim_register_controller(struct slim_controller *ctrl)
 {
 	int id;
 
-	id = ida_simple_get(&ctrl_ida, 0, 0, GFP_KERNEL);
+	id = ida_alloc(&ctrl_ida, GFP_KERNEL);
 	if (id < 0)
 		return id;
 
@@ -283,6 +280,7 @@ EXPORT_SYMBOL_GPL(slim_register_controller);
 /* slim_remove_device: Remove the effect of slim_add_device() */
 static void slim_remove_device(struct slim_device *sbdev)
 {
+	of_node_put(sbdev->dev.of_node);
 	device_unregister(&sbdev->dev);
 }
 
@@ -301,9 +299,7 @@ int slim_unregister_controller(struct slim_controller *ctrl)
 {
 	/* Remove all clients */
 	device_for_each_child(ctrl->dev, NULL, slim_ctrl_remove_device);
-	/* Enter Clock Pause */
-	slim_ctrl_clk_pause(ctrl, false, 0);
-	ida_simple_remove(&ctrl_ida, ctrl->id);
+	ida_free(&ctrl_ida, ctrl->id);
 
 	return 0;
 }
@@ -326,13 +322,14 @@ void slim_report_absent(struct slim_device *sbdev)
 	mutex_lock(&ctrl->lock);
 	sbdev->is_laddr_valid = false;
 	mutex_unlock(&ctrl->lock);
-
-	ida_simple_remove(&ctrl->laddr_ida, sbdev->laddr);
+	if (!ctrl->get_laddr)
+		ida_free(&ctrl->laddr_ida, sbdev->laddr);
 	slim_device_update_status(sbdev, SLIM_DEVICE_STATUS_DOWN);
 }
 EXPORT_SYMBOL_GPL(slim_report_absent);
 
-static bool slim_eaddr_equal(struct slim_eaddr *a, struct slim_eaddr *b)
+static bool slim_eaddr_equal(const struct slim_eaddr *a,
+			     const struct slim_eaddr *b)
 {
 	return (a->manf_id == b->manf_id &&
 		a->prod_code == b->prod_code &&
@@ -340,9 +337,9 @@ static bool slim_eaddr_equal(struct slim_eaddr *a, struct slim_eaddr *b)
 		a->instance == b->instance);
 }
 
-static int slim_match_dev(struct device *dev, void *data)
+static int slim_match_dev(struct device *dev, const void *data)
 {
-	struct slim_eaddr *e_addr = data;
+	const struct slim_eaddr *e_addr = data;
 	struct slim_device *sbdev = to_slim_device(dev);
 
 	return slim_eaddr_equal(&sbdev->e_addr, e_addr);
@@ -388,21 +385,13 @@ struct slim_device *slim_get_device(struct slim_controller *ctrl,
 }
 EXPORT_SYMBOL_GPL(slim_get_device);
 
-static int of_slim_match_dev(struct device *dev, void *data)
-{
-	struct device_node *np = data;
-	struct slim_device *sbdev = to_slim_device(dev);
-
-	return (sbdev->dev.of_node == np);
-}
-
 static struct slim_device *of_find_slim_device(struct slim_controller *ctrl,
 					       struct device_node *np)
 {
 	struct slim_device *sbdev;
 	struct device *dev;
 
-	dev = device_find_child(ctrl->dev, np, of_slim_match_dev);
+	dev = device_find_child(ctrl->dev, np, device_match_of_node);
 	if (dev) {
 		sbdev = to_slim_device(dev);
 		return sbdev;
@@ -440,8 +429,8 @@ static int slim_device_alloc_laddr(struct slim_device *sbdev,
 		if (ret < 0)
 			goto err;
 	} else if (report_present) {
-		ret = ida_simple_get(&ctrl->laddr_ida,
-				     0, SLIM_LA_MANAGER - 1, GFP_KERNEL);
+		ret = ida_alloc_max(&ctrl->laddr_ida,
+				    SLIM_LA_MANAGER - 1, GFP_KERNEL);
 		if (ret < 0)
 			goto err;
 

@@ -332,7 +332,7 @@ static long wdrtas_ioctl(struct file *file, unsigned int cmd,
 			wdrtas_interval = i;
 		else
 			wdrtas_interval = wdrtas_get_interval(i);
-		/* fallthrough */
+		fallthrough;
 
 	case WDIOC_GETTIMEOUT:
 		return put_user(wdrtas_interval, argp);
@@ -469,9 +469,9 @@ static int wdrtas_reboot(struct notifier_block *this,
 
 static const struct file_operations wdrtas_fops = {
 	.owner		= THIS_MODULE,
-	.llseek		= no_llseek,
 	.write		= wdrtas_write,
 	.unlocked_ioctl	= wdrtas_ioctl,
+	.compat_ioctl	= compat_ptr_ioctl,
 	.open		= wdrtas_open,
 	.release	= wdrtas_close,
 };
@@ -484,7 +484,6 @@ static struct miscdevice wdrtas_miscdev = {
 
 static const struct file_operations wdrtas_temp_fops = {
 	.owner		= THIS_MODULE,
-	.llseek		= no_llseek,
 	.read		= wdrtas_temp_read,
 	.open		= wdrtas_temp_open,
 	.release	= wdrtas_temp_close,

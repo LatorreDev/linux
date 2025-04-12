@@ -65,11 +65,12 @@ enum brcmf_btcoex_state {
  * @reg68: saved value of btc_params 68
  * @saved_regs_part1: flag indicating regs 66,41,68
  *	have been saved
+ * @reg50: saved value of btc_params 50
  * @reg51: saved value of btc_params 51
  * @reg64: saved value of btc_params 64
  * @reg65: saved value of btc_params 65
  * @reg71: saved value of btc_params 71
- * @saved_regs_part1: flag indicating regs 50,51,64,65,71
+ * @saved_regs_part2: flag indicating regs 50,51,64,65,71
  *	have been saved
  */
 struct brcmf_btcoex_info {
@@ -122,7 +123,7 @@ static s32 brcmf_btcoex_params_read(struct brcmf_if *ifp, u32 addr, u32 *data)
 {
 	*data = addr;
 
-	return brcmf_fil_iovar_int_get(ifp, "btc_params", data);
+	return brcmf_fil_iovar_int_query(ifp, "btc_params", data);
 }
 
 /**
@@ -226,7 +227,7 @@ static bool brcmf_btcoex_is_sco_active(struct brcmf_if *ifp)
 	return res;
 }
 
-/**
+/*
  * btcmf_btcoex_save_part1() - save first step parameters.
  */
 static void btcmf_btcoex_save_part1(struct brcmf_btcoex_info *btci)
@@ -246,7 +247,7 @@ static void btcmf_btcoex_save_part1(struct brcmf_btcoex_info *btci)
 	}
 }
 
-/**
+/*
  * brcmf_btcoex_restore_part1() - restore first step parameters.
  */
 static void brcmf_btcoex_restore_part1(struct brcmf_btcoex_info *btci)
@@ -266,7 +267,7 @@ static void brcmf_btcoex_restore_part1(struct brcmf_btcoex_info *btci)
 	}
 }
 
-/**
+/*
  * brcmf_btcoex_timerfunc() - BT coex timer callback
  */
 static void brcmf_btcoex_timerfunc(struct timer_list *t)
@@ -288,7 +289,7 @@ static void brcmf_btcoex_handler(struct work_struct *work)
 	btci = container_of(work, struct brcmf_btcoex_info, work);
 	if (btci->timer_on) {
 		btci->timer_on = false;
-		del_timer_sync(&btci->timer);
+		timer_delete_sync(&btci->timer);
 	}
 
 	switch (btci->bt_state) {
@@ -357,10 +358,10 @@ idle:
  */
 int brcmf_btcoex_attach(struct brcmf_cfg80211_info *cfg)
 {
-	struct brcmf_btcoex_info *btci = NULL;
+	struct brcmf_btcoex_info *btci;
 	brcmf_dbg(TRACE, "enter\n");
 
-	btci = kmalloc(sizeof(struct brcmf_btcoex_info), GFP_KERNEL);
+	btci = kmalloc(sizeof(*btci), GFP_KERNEL);
 	if (!btci)
 		return -ENOMEM;
 
@@ -393,7 +394,7 @@ void brcmf_btcoex_detach(struct brcmf_cfg80211_info *cfg)
 
 	if (cfg->btcoex->timer_on) {
 		cfg->btcoex->timer_on = false;
-		del_timer_sync(&cfg->btcoex->timer);
+		timer_shutdown_sync(&cfg->btcoex->timer);
 	}
 
 	cancel_work_sync(&cfg->btcoex->work);
@@ -427,7 +428,7 @@ static void brcmf_btcoex_dhcp_end(struct brcmf_btcoex_info *btci)
 	if (btci->timer_on) {
 		brcmf_dbg(INFO, "disable BT DHCP Timer\n");
 		btci->timer_on = false;
-		del_timer_sync(&btci->timer);
+		timer_delete_sync(&btci->timer);
 
 		/* schedule worker if transition to IDLE is needed */
 		if (btci->bt_state != BRCMF_BT_DHCP_IDLE) {
@@ -441,9 +442,8 @@ static void brcmf_btcoex_dhcp_end(struct brcmf_btcoex_info *btci)
 	}
 }
 
-/**
+/*
  * brcmf_btcoex_set_mode - set BT coex mode
- * @cfg: driver private cfg80211 data
  * @mode: Wifi-Bluetooth coexistence mode
  *
  * return: 0 on success

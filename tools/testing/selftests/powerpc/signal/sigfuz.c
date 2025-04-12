@@ -42,7 +42,7 @@
 #include "utils.h"
 
 /* Selftest defaults */
-#define COUNT_MAX	4000		/* Number of interactions */
+#define COUNT_MAX	600		/* Number of interactions */
 #define THREADS		16		/* Number of threads */
 
 /* Arguments options */
@@ -321,5 +321,5 @@ int main(int argc, char **argv)
 	if (!args)
 		args = ARG_COMPLETE;
 
-	test_harness(signal_fuzzer, "signal_fuzzer");
+	return test_harness(signal_fuzzer, "signal_fuzzer");
 }

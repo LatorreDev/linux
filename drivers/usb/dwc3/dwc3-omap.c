@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0
-/**
+/*
  * dwc3-omap.c - OMAP Specific Glue layer
  *
- * Copyright (C) 2010-2011 Texas Instruments Incorporated - http://www.ti.com
+ * Copyright (C) 2010-2011 Texas Instruments Incorporated - https://www.ti.com
  *
  * Authors: Felipe Balbi <balbi@ti.com>,
  *	    Sebastian Andrzej Siewior <bigeasy@linutronix.de>
@@ -242,7 +242,7 @@ static void dwc3_omap_set_mailbox(struct dwc3_omap *omap,
 		break;
 
 	case OMAP_DWC3_ID_FLOAT:
-		if (omap->vbus_reg)
+		if (omap->vbus_reg && regulator_is_enabled(omap->vbus_reg))
 			regulator_disable(omap->vbus_reg);
 		val = dwc3_omap_read_utmi_ctrl(omap);
 		val |= USBOTGSS_UTMI_OTG_CTRL_IDDIG;
@@ -416,7 +416,7 @@ static int dwc3_omap_extcon_register(struct dwc3_omap *omap)
 	struct device_node	*node = omap->dev->of_node;
 	struct extcon_dev	*edev;
 
-	if (of_property_read_bool(node, "extcon")) {
+	if (of_property_present(node, "extcon")) {
 		edev = extcon_get_edev_by_phandle(omap->dev, 0);
 		if (IS_ERR(edev)) {
 			dev_vdbg(omap->dev, "couldn't get extcon device\n");
@@ -437,8 +437,13 @@ static int dwc3_omap_extcon_register(struct dwc3_omap *omap)
 
 		if (extcon_get_state(edev, EXTCON_USB) == true)
 			dwc3_omap_set_mailbox(omap, OMAP_DWC3_VBUS_VALID);
+		else
+			dwc3_omap_set_mailbox(omap, OMAP_DWC3_VBUS_OFF);
+
 		if (extcon_get_state(edev, EXTCON_USB_HOST) == true)
 			dwc3_omap_set_mailbox(omap, OMAP_DWC3_ID_GROUND);
+		else
+			dwc3_omap_set_mailbox(omap, OMAP_DWC3_ID_FLOAT);
 
 		omap->edev = edev;
 	}
@@ -452,12 +457,10 @@ static int dwc3_omap_probe(struct platform_device *pdev)
 
 	struct dwc3_omap	*omap;
 	struct device		*dev = &pdev->dev;
-	struct regulator	*vbus_reg = NULL;
+	struct regulator	*vbus_reg;
 
 	int			ret;
 	int			irq;
-
-	u32			reg;
 
 	void __iomem		*base;
 
@@ -480,12 +483,11 @@ static int dwc3_omap_probe(struct platform_device *pdev)
 	if (IS_ERR(base))
 		return PTR_ERR(base);
 
-	if (of_property_read_bool(node, "vbus-supply")) {
-		vbus_reg = devm_regulator_get(dev, "vbus");
-		if (IS_ERR(vbus_reg)) {
-			dev_err(dev, "vbus init failed\n");
-			return PTR_ERR(vbus_reg);
-		}
+	vbus_reg = devm_regulator_get_optional(dev, "vbus");
+	if (IS_ERR(vbus_reg)) {
+		if (PTR_ERR(vbus_reg) != -ENODEV)
+			return dev_err_probe(dev, PTR_ERR(vbus_reg), "vbus init failed\n");
+		vbus_reg = NULL;
 	}
 
 	omap->dev	= dev;
@@ -503,9 +505,6 @@ static int dwc3_omap_probe(struct platform_device *pdev)
 	dwc3_omap_map_offset(omap);
 	dwc3_omap_set_utmi_mode(omap);
 
-	/* check the DMA Status */
-	reg = dwc3_omap_readl(omap->base, USBOTGSS_SYSCONFIG);
-
 	ret = dwc3_omap_extcon_register(omap);
 	if (ret < 0)
 		goto err1;
@@ -522,11 +521,13 @@ static int dwc3_omap_probe(struct platform_device *pdev)
 	if (ret) {
 		dev_err(dev, "failed to request IRQ #%d --> %d\n",
 			omap->irq, ret);
-		goto err1;
+		goto err2;
 	}
 	dwc3_omap_enable_irqs(omap);
 	return 0;
 
+err2:
+	of_platform_depopulate(dev);
 err1:
 	pm_runtime_put_sync(dev);
 	pm_runtime_disable(dev);
@@ -534,7 +535,7 @@ err1:
 	return ret;
 }
 
-static int dwc3_omap_remove(struct platform_device *pdev)
+static void dwc3_omap_remove(struct platform_device *pdev)
 {
 	struct dwc3_omap	*omap = platform_get_drvdata(pdev);
 
@@ -543,8 +544,6 @@ static int dwc3_omap_remove(struct platform_device *pdev)
 	of_platform_depopulate(omap->dev);
 	pm_runtime_put_sync(&pdev->dev);
 	pm_runtime_disable(&pdev->dev);
-
-	return 0;
 }
 
 static const struct of_device_id of_dwc3_match[] = {

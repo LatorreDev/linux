@@ -220,6 +220,7 @@ struct dm_bl_data_point {
 };
 
 /* Total size of the structure should not exceed 256 bytes */
+#define BL_DATA_POINTS 99
 struct dm_acpi_atif_backlight_caps {
 	uint16_t size; /* Bytes 0-1 (2 bytes) */
 	uint16_t flags; /* Byted 2-3 (2 bytes) */
@@ -229,7 +230,7 @@ struct dm_acpi_atif_backlight_caps {
 	uint8_t  min_input_signal; /* Byte 7 */
 	uint8_t  max_input_signal; /* Byte 8 */
 	uint8_t  num_data_points; /* Byte 9 */
-	struct dm_bl_data_point data_points[99]; /* Bytes 10-207 (198 bytes)*/
+	struct dm_bl_data_point data_points[BL_DATA_POINTS]; /* Bytes 10-207 (198 bytes)*/
 };
 
 enum dm_acpi_display_type {
@@ -266,6 +267,38 @@ struct dtn_min_clk_info {
 	uint32_t disp_clk_khz;
 	uint32_t min_engine_clock_khz;
 	uint32_t min_memory_clock_khz;
+};
+
+enum dm_dmub_wait_type {
+	DM_DMUB_WAIT_TYPE_NO_WAIT,
+	DM_DMUB_WAIT_TYPE_WAIT,
+	DM_DMUB_WAIT_TYPE_WAIT_WITH_REPLY,
+};
+
+enum dm_acpi_transition_link_type {
+	hdmi_tmds,
+	hdmi_frl,
+	dp_8b_10b,
+	dp_128b_132b,
+	none
+};
+
+struct dm_process_phy_transition_init_params {
+	uint32_t phy_id;
+	uint8_t action;
+	uint32_t sym_clock_10khz;
+	enum signal_type signal;
+	enum dc_lane_count display_port_lanes_count;
+	enum dc_link_rate display_port_link_rate;
+	uint32_t transition_bitmask;
+	uint8_t hdmi_frl_num_lanes;
+};
+
+struct dm_process_phy_transition_input_params {
+	uint32_t phy_id;
+	uint32_t transition_id;
+	uint32_t phy_configuration;
+	uint32_t data_rate;
 };
 
 #endif

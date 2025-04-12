@@ -42,6 +42,11 @@ OPTIONS
 	Prefixing with ! shows all syscalls but the ones specified.  You may
 	need to escape it.
 
+--filter=<filter>::
+        Event filter. This option should follow an event selector (-e) which
+	selects tracepoint event(s).
+
+
 -D msecs::
 --delay msecs::
 After starting the program, wait msecs before measuring. This is useful to
@@ -92,8 +97,8 @@ filter out the startup phase of the program, which is often very different.
 	Filter out events for these pids and for 'trace' itself (comma separated list).
 
 -v::
---verbose=::
-        Verbosity level.
+--verbose::
+        Increase the verbosity level.
 
 --no-inherit::
 	Child tasks do not inherit counters.
@@ -101,8 +106,8 @@ filter out the startup phase of the program, which is often very different.
 -m::
 --mmap-pages=::
 	Number of mmap data pages (must be a power of two) or size
-	specification with appended unit character - B/K/M/G. The
-	size is rounded up to have nearest pages power of two value.
+	specification in bytes with appended unit character - B/K/M/G.
+	The size is rounded up to the nearest power-of-two page value.
 
 -C::
 --cpu::
@@ -140,6 +145,14 @@ the thread executes on the designated CPUs. Default is to monitor all CPUs.
 --with-summary::
 	Show all syscalls followed by a summary by thread with min, max, and
     average times (in msec) and relative stddev.
+
+--errno-summary::
+	To be used with -s or -S, to show stats for the errnos experienced by
+	syscalls, using only this option will trigger --summary.
+
+--summary-mode=mode::
+	To be used with -s or -S, to select how to show summary.  By default it'll
+	show the syscall summary by thread.  Possible values are: thread, total.
 
 --tool_stats::
 	Show tool stats such as number of times fd->pathname was discovered thru
@@ -219,6 +232,11 @@ the thread executes on the designated CPUs. Default is to monitor all CPUs.
 	may happen, for instance, when a thread gets migrated to a different CPU
 	while processing a syscall.
 
+--libtraceevent_print::
+	Use libtraceevent to print tracepoint arguments. By default 'perf trace' uses
+	the same beautifiers used in the strace-like enter+exit lines to augment the
+	tracepoint arguments.
+
 --map-dump::
 	Dump BPF maps setup by events passed via -e, for instance the augmented_raw_syscalls
 	living in tools/perf/examples/bpf/augmented_raw_syscalls.c. For now this
@@ -227,6 +245,11 @@ the thread executes on the designated CPUs. Default is to monitor all CPUs.
 	printing using the existing 'perf trace' syscall arg beautifiers to map integer
 	arguments to strings (pid to comm, syscall id to syscall name, etc).
 
+--force-btf::
+	Use btf_dump to pretty print syscall argument data, instead of using hand-crafted pretty
+	printers. This option is intended for testing BTF integration in perf trace. btf_dump-based
+	pretty-printing serves as a fallback to hand-crafted pretty printers, as the latter can
+	better pretty-print integer flags and struct pointers.
 
 PAGEFAULTS
 ----------

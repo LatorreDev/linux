@@ -281,6 +281,7 @@ struct memstick_host {
 
 	struct memstick_dev *card;
 	unsigned int        retries;
+	bool removing;
 
 	/* Notify the host that some requests are pending. */
 	void                (*request)(struct memstick_host *host);
@@ -288,11 +289,11 @@ struct memstick_host {
 	int                 (*set_param)(struct memstick_host *host,
 					 enum memstick_param param,
 					 int value);
-	unsigned long       private[0] ____cacheline_aligned;
+	unsigned long       private[] ____cacheline_aligned;
 };
 
 struct memstick_driver {
-	struct memstick_device_id *id_table;
+	const struct memstick_device_id *id_table;
 	int                       (*probe)(struct memstick_dev *card);
 	void                      (*remove)(struct memstick_dev *card);
 	int                       (*suspend)(struct memstick_dev *card,

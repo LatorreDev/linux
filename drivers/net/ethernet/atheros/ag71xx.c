@@ -29,13 +29,16 @@
 
 #include <linux/if_vlan.h>
 #include <linux/mfd/syscon.h>
+#include <linux/of.h>
 #include <linux/of_mdio.h>
 #include <linux/of_net.h>
-#include <linux/of_platform.h>
+#include <linux/platform_device.h>
+#include <linux/phylink.h>
 #include <linux/regmap.h>
 #include <linux/reset.h>
 #include <linux/clk.h>
 #include <linux/io.h>
+#include <net/selftests.h>
 
 /* For our NAPI weight bigger does *NOT* mean better - it means more
  * D-cache misses and lots more wasted cycles than we'll ever
@@ -146,11 +149,11 @@
 #define FIFO_CFG4_MC		BIT(8)	/* Multicast Packet */
 #define FIFO_CFG4_BC		BIT(9)	/* Broadcast Packet */
 #define FIFO_CFG4_DR		BIT(10)	/* Dribble */
-#define FIFO_CFG4_LE		BIT(11)	/* Long Event */
-#define FIFO_CFG4_CF		BIT(12)	/* Control Frame */
-#define FIFO_CFG4_PF		BIT(13)	/* Pause Frame */
-#define FIFO_CFG4_UO		BIT(14)	/* Unsupported Opcode */
-#define FIFO_CFG4_VT		BIT(15)	/* VLAN tag detected */
+#define FIFO_CFG4_CF		BIT(11)	/* Control Frame */
+#define FIFO_CFG4_PF		BIT(12)	/* Pause Frame */
+#define FIFO_CFG4_UO		BIT(13)	/* Unsupported Opcode */
+#define FIFO_CFG4_VT		BIT(14)	/* VLAN tag detected */
+#define FIFO_CFG4_LE		BIT(15)	/* Long Event */
 #define FIFO_CFG4_FT		BIT(16)	/* Frame Truncated */
 #define FIFO_CFG4_UC		BIT(17)	/* Unicast Packet */
 #define FIFO_CFG4_INIT	(FIFO_CFG4_DE | FIFO_CFG4_DV | FIFO_CFG4_FC | \
@@ -165,28 +168,28 @@
 #define FIFO_CFG5_DV		BIT(1)	/* RX_DV Event */
 #define FIFO_CFG5_FC		BIT(2)	/* False Carrier */
 #define FIFO_CFG5_CE		BIT(3)	/* Code Error */
-#define FIFO_CFG5_LM		BIT(4)	/* Length Mismatch */
-#define FIFO_CFG5_LO		BIT(5)	/* Length Out of Range */
-#define FIFO_CFG5_OK		BIT(6)	/* Packet is OK */
-#define FIFO_CFG5_MC		BIT(7)	/* Multicast Packet */
-#define FIFO_CFG5_BC		BIT(8)	/* Broadcast Packet */
-#define FIFO_CFG5_DR		BIT(9)	/* Dribble */
-#define FIFO_CFG5_CF		BIT(10)	/* Control Frame */
-#define FIFO_CFG5_PF		BIT(11)	/* Pause Frame */
-#define FIFO_CFG5_UO		BIT(12)	/* Unsupported Opcode */
-#define FIFO_CFG5_VT		BIT(13)	/* VLAN tag detected */
-#define FIFO_CFG5_LE		BIT(14)	/* Long Event */
-#define FIFO_CFG5_FT		BIT(15)	/* Frame Truncated */
-#define FIFO_CFG5_16		BIT(16)	/* unknown */
-#define FIFO_CFG5_17		BIT(17)	/* unknown */
+#define FIFO_CFG5_CR		BIT(4)  /* CRC error */
+#define FIFO_CFG5_LM		BIT(5)	/* Length Mismatch */
+#define FIFO_CFG5_LO		BIT(6)	/* Length Out of Range */
+#define FIFO_CFG5_OK		BIT(7)	/* Packet is OK */
+#define FIFO_CFG5_MC		BIT(8)	/* Multicast Packet */
+#define FIFO_CFG5_BC		BIT(9)	/* Broadcast Packet */
+#define FIFO_CFG5_DR		BIT(10)	/* Dribble */
+#define FIFO_CFG5_CF		BIT(11)	/* Control Frame */
+#define FIFO_CFG5_PF		BIT(12)	/* Pause Frame */
+#define FIFO_CFG5_UO		BIT(13)	/* Unsupported Opcode */
+#define FIFO_CFG5_VT		BIT(14)	/* VLAN tag detected */
+#define FIFO_CFG5_LE		BIT(15)	/* Long Event */
+#define FIFO_CFG5_FT		BIT(16)	/* Frame Truncated */
+#define FIFO_CFG5_UC		BIT(17)	/* Unicast Packet */
 #define FIFO_CFG5_SF		BIT(18)	/* Short Frame */
 #define FIFO_CFG5_BM		BIT(19)	/* Byte Mode */
 #define FIFO_CFG5_INIT	(FIFO_CFG5_DE | FIFO_CFG5_DV | FIFO_CFG5_FC | \
-			 FIFO_CFG5_CE | FIFO_CFG5_LO | FIFO_CFG5_OK | \
-			 FIFO_CFG5_MC | FIFO_CFG5_BC | FIFO_CFG5_DR | \
-			 FIFO_CFG5_CF | FIFO_CFG5_PF | FIFO_CFG5_VT | \
-			 FIFO_CFG5_LE | FIFO_CFG5_FT | FIFO_CFG5_16 | \
-			 FIFO_CFG5_17 | FIFO_CFG5_SF)
+			 FIFO_CFG5_CE | FIFO_CFG5_LM | FIFO_CFG5_LO | \
+			 FIFO_CFG5_OK | FIFO_CFG5_MC | FIFO_CFG5_BC | \
+			 FIFO_CFG5_DR | FIFO_CFG5_CF | FIFO_CFG5_UO | \
+			 FIFO_CFG5_VT | FIFO_CFG5_LE | FIFO_CFG5_FT | \
+			 FIFO_CFG5_UC | FIFO_CFG5_SF)
 
 #define AG71XX_REG_TX_CTRL	0x0180
 #define TX_CTRL_TXE		BIT(0)	/* Tx Enable */
@@ -222,8 +225,6 @@
 #define AG71XX_REG_RX_SM	0x01b0
 #define AG71XX_REG_TX_SM	0x01b4
 
-#define ETH_SWITCH_HEADER_LEN	2
-
 #define AG71XX_DEFAULT_MSG_ENABLE	\
 	(NETIF_MSG_DRV			\
 	| NETIF_MSG_PROBE		\
@@ -233,6 +234,59 @@
 	| NETIF_MSG_IFUP		\
 	| NETIF_MSG_RX_ERR		\
 	| NETIF_MSG_TX_ERR)
+
+struct ag71xx_statistic {
+	unsigned short offset;
+	u32 mask;
+	const char name[ETH_GSTRING_LEN];
+};
+
+static const struct ag71xx_statistic ag71xx_statistics[] = {
+	{ 0x0080, GENMASK(17, 0), "Tx/Rx 64 Byte", },
+	{ 0x0084, GENMASK(17, 0), "Tx/Rx 65-127 Byte", },
+	{ 0x0088, GENMASK(17, 0), "Tx/Rx 128-255 Byte", },
+	{ 0x008C, GENMASK(17, 0), "Tx/Rx 256-511 Byte", },
+	{ 0x0090, GENMASK(17, 0), "Tx/Rx 512-1023 Byte", },
+	{ 0x0094, GENMASK(17, 0), "Tx/Rx 1024-1518 Byte", },
+	{ 0x0098, GENMASK(17, 0), "Tx/Rx 1519-1522 Byte VLAN", },
+	{ 0x009C, GENMASK(23, 0), "Rx Byte", },
+	{ 0x00A0, GENMASK(17, 0), "Rx Packet", },
+	{ 0x00A4, GENMASK(11, 0), "Rx FCS Error", },
+	{ 0x00A8, GENMASK(17, 0), "Rx Multicast Packet", },
+	{ 0x00AC, GENMASK(21, 0), "Rx Broadcast Packet", },
+	{ 0x00B0, GENMASK(17, 0), "Rx Control Frame Packet", },
+	{ 0x00B4, GENMASK(11, 0), "Rx Pause Frame Packet", },
+	{ 0x00B8, GENMASK(11, 0), "Rx Unknown OPCode Packet", },
+	{ 0x00BC, GENMASK(11, 0), "Rx Alignment Error", },
+	{ 0x00C0, GENMASK(15, 0), "Rx Frame Length Error", },
+	{ 0x00C4, GENMASK(11, 0), "Rx Code Error", },
+	{ 0x00C8, GENMASK(11, 0), "Rx Carrier Sense Error", },
+	{ 0x00CC, GENMASK(11, 0), "Rx Undersize Packet", },
+	{ 0x00D0, GENMASK(11, 0), "Rx Oversize Packet", },
+	{ 0x00D4, GENMASK(11, 0), "Rx Fragments", },
+	{ 0x00D8, GENMASK(11, 0), "Rx Jabber", },
+	{ 0x00DC, GENMASK(11, 0), "Rx Dropped Packet", },
+	{ 0x00E0, GENMASK(23, 0), "Tx Byte", },
+	{ 0x00E4, GENMASK(17, 0), "Tx Packet", },
+	{ 0x00E8, GENMASK(17, 0), "Tx Multicast Packet", },
+	{ 0x00EC, GENMASK(17, 0), "Tx Broadcast Packet", },
+	{ 0x00F0, GENMASK(11, 0), "Tx Pause Control Frame", },
+	{ 0x00F4, GENMASK(11, 0), "Tx Deferral Packet", },
+	{ 0x00F8, GENMASK(11, 0), "Tx Excessive Deferral Packet", },
+	{ 0x00FC, GENMASK(11, 0), "Tx Single Collision Packet", },
+	{ 0x0100, GENMASK(11, 0), "Tx Multiple Collision", },
+	{ 0x0104, GENMASK(11, 0), "Tx Late Collision Packet", },
+	{ 0x0108, GENMASK(11, 0), "Tx Excessive Collision Packet", },
+	{ 0x010C, GENMASK(12, 0), "Tx Total Collision", },
+	{ 0x0110, GENMASK(11, 0), "Tx Pause Frames Honored", },
+	{ 0x0114, GENMASK(11, 0), "Tx Drop Frame", },
+	{ 0x0118, GENMASK(11, 0), "Tx Jabber Frame", },
+	{ 0x011C, GENMASK(11, 0), "Tx FCS Error", },
+	{ 0x0120, GENMASK(11, 0), "Tx Control Frame", },
+	{ 0x0124, GENMASK(11, 0), "Tx Oversize Frame", },
+	{ 0x0128, GENMASK(11, 0), "Tx Undersize Frame", },
+	{ 0x012C, GENMASK(11, 0), "Tx Fragment", },
+};
 
 #define DESC_EMPTY		BIT(31)
 #define DESC_MORE		BIT(24)
@@ -313,7 +367,9 @@ struct ag71xx {
 	struct ag71xx_desc *stop_desc;
 	dma_addr_t stop_desc_dma;
 
-	int phy_if_mode;
+	phy_interface_t phy_if_mode;
+	struct phylink *phylink;
+	struct phylink_config phylink_config;
 
 	struct delayed_work restart_work;
 	struct timer_list oom_timer;
@@ -323,10 +379,7 @@ struct ag71xx {
 	u32 fifodata[3];
 	int mac_idx;
 
-	struct reset_control *mdio_reset;
-	struct mii_bus *mii_bus;
 	struct clk *clk_mdio;
-	struct clk *clk_eth;
 };
 
 static int ag71xx_desc_empty(struct ag71xx_desc *desc)
@@ -390,6 +443,116 @@ static void ag71xx_int_disable(struct ag71xx *ag, u32 ints)
 {
 	ag71xx_cb(ag, AG71XX_REG_INT_ENABLE, ints);
 }
+
+static int ag71xx_do_ioctl(struct net_device *ndev, struct ifreq *ifr, int cmd)
+{
+	struct ag71xx *ag = netdev_priv(ndev);
+
+	return phylink_mii_ioctl(ag->phylink, ifr, cmd);
+}
+
+static void ag71xx_get_drvinfo(struct net_device *ndev,
+			       struct ethtool_drvinfo *info)
+{
+	struct ag71xx *ag = netdev_priv(ndev);
+
+	strscpy(info->driver, "ag71xx", sizeof(info->driver));
+	strscpy(info->bus_info, of_node_full_name(ag->pdev->dev.of_node),
+		sizeof(info->bus_info));
+}
+
+static int ag71xx_get_link_ksettings(struct net_device *ndev,
+				   struct ethtool_link_ksettings *kset)
+{
+	struct ag71xx *ag = netdev_priv(ndev);
+
+	return phylink_ethtool_ksettings_get(ag->phylink, kset);
+}
+
+static int ag71xx_set_link_ksettings(struct net_device *ndev,
+				   const struct ethtool_link_ksettings *kset)
+{
+	struct ag71xx *ag = netdev_priv(ndev);
+
+	return phylink_ethtool_ksettings_set(ag->phylink, kset);
+}
+
+static int ag71xx_ethtool_nway_reset(struct net_device *ndev)
+{
+	struct ag71xx *ag = netdev_priv(ndev);
+
+	return phylink_ethtool_nway_reset(ag->phylink);
+}
+
+static void ag71xx_ethtool_get_pauseparam(struct net_device *ndev,
+					  struct ethtool_pauseparam *pause)
+{
+	struct ag71xx *ag = netdev_priv(ndev);
+
+	phylink_ethtool_get_pauseparam(ag->phylink, pause);
+}
+
+static int ag71xx_ethtool_set_pauseparam(struct net_device *ndev,
+					 struct ethtool_pauseparam *pause)
+{
+	struct ag71xx *ag = netdev_priv(ndev);
+
+	return phylink_ethtool_set_pauseparam(ag->phylink, pause);
+}
+
+static void ag71xx_ethtool_get_strings(struct net_device *netdev, u32 sset,
+				       u8 *data)
+{
+	int i;
+
+	switch (sset) {
+	case ETH_SS_STATS:
+		for (i = 0; i < ARRAY_SIZE(ag71xx_statistics); i++)
+			ethtool_puts(&data, ag71xx_statistics[i].name);
+		break;
+	case ETH_SS_TEST:
+		net_selftest_get_strings(data);
+		break;
+	}
+}
+
+static void ag71xx_ethtool_get_stats(struct net_device *ndev,
+				     struct ethtool_stats *stats, u64 *data)
+{
+	struct ag71xx *ag = netdev_priv(ndev);
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(ag71xx_statistics); i++)
+		*data++ = ag71xx_rr(ag, ag71xx_statistics[i].offset)
+				& ag71xx_statistics[i].mask;
+}
+
+static int ag71xx_ethtool_get_sset_count(struct net_device *ndev, int sset)
+{
+	switch (sset) {
+	case ETH_SS_STATS:
+		return ARRAY_SIZE(ag71xx_statistics);
+	case ETH_SS_TEST:
+		return net_selftest_get_count();
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static const struct ethtool_ops ag71xx_ethtool_ops = {
+	.get_drvinfo			= ag71xx_get_drvinfo,
+	.get_link			= ethtool_op_get_link,
+	.get_ts_info			= ethtool_op_get_ts_info,
+	.get_link_ksettings		= ag71xx_get_link_ksettings,
+	.set_link_ksettings		= ag71xx_set_link_ksettings,
+	.nway_reset			= ag71xx_ethtool_nway_reset,
+	.get_pauseparam			= ag71xx_ethtool_get_pauseparam,
+	.set_pauseparam			= ag71xx_ethtool_set_pauseparam,
+	.get_strings			= ag71xx_ethtool_get_strings,
+	.get_ethtool_stats		= ag71xx_ethtool_get_stats,
+	.get_sset_count			= ag71xx_ethtool_get_sset_count,
+	.self_test			= net_selftest,
+};
 
 static int ag71xx_mdio_wait_busy(struct ag71xx *ag)
 {
@@ -525,35 +688,27 @@ static int ag71xx_mdio_probe(struct ag71xx *ag)
 {
 	struct device *dev = &ag->pdev->dev;
 	struct net_device *ndev = ag->ndev;
+	struct reset_control *mdio_reset;
 	static struct mii_bus *mii_bus;
 	struct device_node *np, *mnp;
 	int err;
 
 	np = dev->of_node;
-	ag->mii_bus = NULL;
 
-	ag->clk_mdio = devm_clk_get(dev, "mdio");
+	ag->clk_mdio = devm_clk_get_enabled(dev, "mdio");
 	if (IS_ERR(ag->clk_mdio)) {
 		netif_err(ag, probe, ndev, "Failed to get mdio clk.\n");
 		return PTR_ERR(ag->clk_mdio);
 	}
 
-	err = clk_prepare_enable(ag->clk_mdio);
-	if (err) {
-		netif_err(ag, probe, ndev, "Failed to enable mdio clk.\n");
-		return err;
-	}
-
 	mii_bus = devm_mdiobus_alloc(dev);
-	if (!mii_bus) {
-		err = -ENOMEM;
-		goto mdio_err_put_clk;
-	}
+	if (!mii_bus)
+		return -ENOMEM;
 
-	ag->mdio_reset = of_reset_control_get_exclusive(np, "mdio");
-	if (IS_ERR(ag->mdio_reset)) {
+	mdio_reset = devm_reset_control_get_exclusive(dev, "mdio");
+	if (IS_ERR(mdio_reset)) {
 		netif_err(ag, probe, ndev, "Failed to get reset mdio.\n");
-		return PTR_ERR(ag->mdio_reset);
+		return PTR_ERR(mdio_reset);
 	}
 
 	mii_bus->name = "ag71xx_mdio";
@@ -564,33 +719,18 @@ static int ag71xx_mdio_probe(struct ag71xx *ag)
 	mii_bus->parent = dev;
 	snprintf(mii_bus->id, MII_BUS_ID_SIZE, "%s.%d", np->name, ag->mac_idx);
 
-	if (!IS_ERR(ag->mdio_reset)) {
-		reset_control_assert(ag->mdio_reset);
-		msleep(100);
-		reset_control_deassert(ag->mdio_reset);
-		msleep(200);
-	}
+	reset_control_assert(mdio_reset);
+	msleep(100);
+	reset_control_deassert(mdio_reset);
+	msleep(200);
 
 	mnp = of_get_child_by_name(np, "mdio");
-	err = of_mdiobus_register(mii_bus, mnp);
+	err = devm_of_mdiobus_register(dev, mii_bus, mnp);
 	of_node_put(mnp);
 	if (err)
-		goto mdio_err_put_clk;
-
-	ag->mii_bus = mii_bus;
+		return err;
 
 	return 0;
-
-mdio_err_put_clk:
-	clk_disable_unprepare(ag->clk_mdio);
-	return err;
-}
-
-static void ag71xx_mdio_remove(struct ag71xx *ag)
-{
-	if (ag->mii_bus)
-		mdiobus_unregister(ag->mii_bus);
-	clk_disable_unprepare(ag->clk_mdio);
 }
 
 static void ag71xx_hw_stop(struct ag71xx *ag)
@@ -606,7 +746,7 @@ static bool ag71xx_check_dma_stuck(struct ag71xx *ag)
 	unsigned long timestamp;
 	u32 rx_sm, tx_sm, rx_fd;
 
-	timestamp = netdev_get_tx_queue(ag->ndev, 0)->trans_start;
+	timestamp = READ_ONCE(netdev_get_tx_queue(ag->ndev, 0)->trans_start);
 	if (likely(time_before(jiffies, timestamp + HZ / 10)))
 		return false;
 
@@ -626,7 +766,7 @@ static bool ag71xx_check_dma_stuck(struct ag71xx *ag)
 	return false;
 }
 
-static int ag71xx_tx_packets(struct ag71xx *ag, bool flush)
+static int ag71xx_tx_packets(struct ag71xx *ag, bool flush, int budget)
 {
 	struct ag71xx_ring *ring = &ag->tx_ring;
 	int sent = 0, bytes_compl = 0, n = 0;
@@ -665,7 +805,7 @@ static int ag71xx_tx_packets(struct ag71xx *ag, bool flush)
 		if (!skb)
 			continue;
 
-		dev_kfree_skb_any(skb);
+		napi_consume_skb(skb, budget);
 		ring->buf[i].tx.skb = NULL;
 
 		bytes_compl += ring->buf[i].tx.len;
@@ -783,10 +923,10 @@ static void ag71xx_hw_setup(struct ag71xx *ag)
 
 static unsigned int ag71xx_max_frame_len(unsigned int mtu)
 {
-	return ETH_SWITCH_HEADER_LEN + ETH_HLEN + VLAN_HLEN + mtu + ETH_FCS_LEN;
+	return ETH_HLEN + VLAN_HLEN + mtu + ETH_FCS_LEN;
 }
 
-static void ag71xx_hw_set_macaddr(struct ag71xx *ag, unsigned char *mac)
+static void ag71xx_hw_set_macaddr(struct ag71xx *ag, const unsigned char *mac)
 {
 	u32 t;
 
@@ -810,7 +950,7 @@ static void ag71xx_fast_reset(struct ag71xx *ag)
 	mii_reg = ag71xx_rr(ag, AG71XX_REG_MII_CFG);
 	rx_ds = ag71xx_rr(ag, AG71XX_REG_RX_DESC);
 
-	ag71xx_tx_packets(ag, true);
+	ag71xx_tx_packets(ag, true, 0);
 
 	reset_control_assert(ag->mac_reset);
 	usleep_range(10, 20);
@@ -845,24 +985,47 @@ static void ag71xx_hw_start(struct ag71xx *ag)
 	netif_wake_queue(ag->ndev);
 }
 
-static void ag71xx_link_adjust(struct ag71xx *ag, bool update)
+static void ag71xx_mac_config(struct phylink_config *config, unsigned int mode,
+			      const struct phylink_link_state *state)
 {
-	struct phy_device *phydev = ag->ndev->phydev;
-	u32 cfg2;
-	u32 ifctl;
-	u32 fifo5;
+	struct ag71xx *ag = netdev_priv(to_net_dev(config->dev));
 
-	if (!phydev->link && update) {
-		ag71xx_hw_stop(ag);
+	if (phylink_autoneg_inband(mode))
 		return;
-	}
 
 	if (!ag71xx_is(ag, AR7100) && !ag71xx_is(ag, AR9130))
 		ag71xx_fast_reset(ag);
 
+	if (ag->tx_ring.desc_split) {
+		ag->fifodata[2] &= 0xffff;
+		ag->fifodata[2] |= ((2048 - ag->tx_ring.desc_split) / 4) << 16;
+	}
+
+	ag71xx_wr(ag, AG71XX_REG_FIFO_CFG3, ag->fifodata[2]);
+}
+
+static void ag71xx_mac_link_down(struct phylink_config *config,
+				 unsigned int mode, phy_interface_t interface)
+{
+	struct ag71xx *ag = netdev_priv(to_net_dev(config->dev));
+
+	ag71xx_hw_stop(ag);
+}
+
+static void ag71xx_mac_link_up(struct phylink_config *config,
+			       struct phy_device *phy,
+			       unsigned int mode, phy_interface_t interface,
+			       int speed, int duplex,
+			       bool tx_pause, bool rx_pause)
+{
+	struct ag71xx *ag = netdev_priv(to_net_dev(config->dev));
+	u32 cfg1, cfg2;
+	u32 ifctl;
+	u32 fifo5;
+
 	cfg2 = ag71xx_rr(ag, AG71XX_REG_MAC_CFG2);
 	cfg2 &= ~(MAC_CFG2_IF_1000 | MAC_CFG2_IF_10_100 | MAC_CFG2_FDX);
-	cfg2 |= (phydev->duplex) ? MAC_CFG2_FDX : 0;
+	cfg2 |= duplex ? MAC_CFG2_FDX : 0;
 
 	ifctl = ag71xx_rr(ag, AG71XX_REG_MAC_IFCTL);
 	ifctl &= ~(MAC_IFCTL_SPEED);
@@ -870,7 +1033,7 @@ static void ag71xx_link_adjust(struct ag71xx *ag, bool update)
 	fifo5 = ag71xx_rr(ag, AG71XX_REG_FIFO_CFG5);
 	fifo5 &= ~FIFO_CFG5_BM;
 
-	switch (phydev->speed) {
+	switch (speed) {
 	case SPEED_1000:
 		cfg2 |= MAC_CFG2_IF_1000;
 		fifo5 |= FIFO_CFG5_BM;
@@ -883,72 +1046,72 @@ static void ag71xx_link_adjust(struct ag71xx *ag, bool update)
 		cfg2 |= MAC_CFG2_IF_10_100;
 		break;
 	default:
-		WARN(1, "not supported speed %i\n", phydev->speed);
 		return;
 	}
-
-	if (ag->tx_ring.desc_split) {
-		ag->fifodata[2] &= 0xffff;
-		ag->fifodata[2] |= ((2048 - ag->tx_ring.desc_split) / 4) << 16;
-	}
-
-	ag71xx_wr(ag, AG71XX_REG_FIFO_CFG3, ag->fifodata[2]);
 
 	ag71xx_wr(ag, AG71XX_REG_MAC_CFG2, cfg2);
 	ag71xx_wr(ag, AG71XX_REG_FIFO_CFG5, fifo5);
 	ag71xx_wr(ag, AG71XX_REG_MAC_IFCTL, ifctl);
 
+	cfg1 = ag71xx_rr(ag, AG71XX_REG_MAC_CFG1);
+	cfg1 &= ~(MAC_CFG1_TFC | MAC_CFG1_RFC);
+	if (tx_pause)
+		cfg1 |= MAC_CFG1_TFC;
+
+	if (rx_pause)
+		cfg1 |= MAC_CFG1_RFC;
+	ag71xx_wr(ag, AG71XX_REG_MAC_CFG1, cfg1);
+
 	ag71xx_hw_start(ag);
-
-	if (update)
-		phy_print_status(phydev);
 }
 
-static void ag71xx_phy_link_adjust(struct net_device *ndev)
+static const struct phylink_mac_ops ag71xx_phylink_mac_ops = {
+	.mac_config = ag71xx_mac_config,
+	.mac_link_down = ag71xx_mac_link_down,
+	.mac_link_up = ag71xx_mac_link_up,
+};
+
+static int ag71xx_phylink_setup(struct ag71xx *ag)
 {
-	struct ag71xx *ag = netdev_priv(ndev);
+	struct phylink *phylink;
 
-	ag71xx_link_adjust(ag, true);
-}
+	ag->phylink_config.dev = &ag->ndev->dev;
+	ag->phylink_config.type = PHYLINK_NETDEV;
+	ag->phylink_config.mac_capabilities = MAC_SYM_PAUSE | MAC_ASYM_PAUSE |
+		MAC_10 | MAC_100 | MAC_1000FD;
 
-static int ag71xx_phy_connect(struct ag71xx *ag)
-{
-	struct device_node *np = ag->pdev->dev.of_node;
-	struct net_device *ndev = ag->ndev;
-	struct device_node *phy_node;
-	struct phy_device *phydev;
-	int ret;
+	if ((ag71xx_is(ag, AR9330) && ag->mac_idx == 0) ||
+	    ag71xx_is(ag, AR9340) ||
+	    ag71xx_is(ag, QCA9530) ||
+	    (ag71xx_is(ag, QCA9550) && ag->mac_idx == 1))
+		__set_bit(PHY_INTERFACE_MODE_MII,
+			  ag->phylink_config.supported_interfaces);
 
-	if (of_phy_is_fixed_link(np)) {
-		ret = of_phy_register_fixed_link(np);
-		if (ret < 0) {
-			netif_err(ag, probe, ndev, "Failed to register fixed PHY link: %d\n",
-				  ret);
-			return ret;
-		}
+	if ((ag71xx_is(ag, AR9330) && ag->mac_idx == 1) ||
+	    (ag71xx_is(ag, AR9340) && ag->mac_idx == 1) ||
+	    (ag71xx_is(ag, QCA9530) && ag->mac_idx == 1))
+		__set_bit(PHY_INTERFACE_MODE_GMII,
+			  ag->phylink_config.supported_interfaces);
 
-		phy_node = of_node_get(np);
-	} else {
-		phy_node = of_parse_phandle(np, "phy-handle", 0);
-	}
+	if (ag71xx_is(ag, QCA9550) && ag->mac_idx == 0)
+		__set_bit(PHY_INTERFACE_MODE_SGMII,
+			  ag->phylink_config.supported_interfaces);
 
-	if (!phy_node) {
-		netif_err(ag, probe, ndev, "Could not find valid phy node\n");
-		return -ENODEV;
-	}
+	if (ag71xx_is(ag, AR9340) && ag->mac_idx == 0)
+		__set_bit(PHY_INTERFACE_MODE_RMII,
+			  ag->phylink_config.supported_interfaces);
 
-	phydev = of_phy_connect(ag->ndev, phy_node, ag71xx_phy_link_adjust,
-				0, ag->phy_if_mode);
+	if ((ag71xx_is(ag, AR9340) && ag->mac_idx == 0) ||
+	    (ag71xx_is(ag, QCA9550) && ag->mac_idx == 1))
+		__set_bit(PHY_INTERFACE_MODE_RGMII,
+			  ag->phylink_config.supported_interfaces);
 
-	of_node_put(phy_node);
+	phylink = phylink_create(&ag->phylink_config, ag->pdev->dev.fwnode,
+				 ag->phy_if_mode, &ag71xx_phylink_mac_ops);
+	if (IS_ERR(phylink))
+		return PTR_ERR(phylink);
 
-	if (!phydev) {
-		netif_err(ag, probe, ndev, "Could not connect to PHY device\n");
-		return -ENODEV;
-	}
-
-	phy_attached_info(phydev);
-
+	ag->phylink = phylink;
 	return 0;
 }
 
@@ -1228,7 +1391,7 @@ static void ag71xx_hw_disable(struct ag71xx *ag)
 	ag71xx_dma_reset(ag);
 
 	napi_disable(&ag->napi);
-	del_timer_sync(&ag->oom_timer);
+	timer_delete_sync(&ag->oom_timer);
 
 	ag71xx_rings_cleanup(ag);
 }
@@ -1238,6 +1401,13 @@ static int ag71xx_open(struct net_device *ndev)
 	struct ag71xx *ag = netdev_priv(ndev);
 	unsigned int max_frame_len;
 	int ret;
+
+	ret = phylink_of_phy_connect(ag->phylink, ag->pdev->dev.of_node, 0);
+	if (ret) {
+		netif_err(ag, link, ndev, "phylink_of_phy_connect filed with err: %i\n",
+			  ret);
+		return ret;
+	}
 
 	max_frame_len = ag71xx_max_frame_len(ndev->mtu);
 	ag->rx_buf_size =
@@ -1251,16 +1421,13 @@ static int ag71xx_open(struct net_device *ndev)
 	if (ret)
 		goto err;
 
-	ret = ag71xx_phy_connect(ag);
-	if (ret)
-		goto err;
-
-	phy_start(ndev->phydev);
+	phylink_start(ag->phylink);
 
 	return 0;
 
 err:
 	ag71xx_rings_cleanup(ag);
+	phylink_disconnect_phy(ag->phylink);
 	return ret;
 }
 
@@ -1268,8 +1435,8 @@ static int ag71xx_stop(struct net_device *ndev)
 {
 	struct ag71xx *ag = netdev_priv(ndev);
 
-	phy_stop(ndev->phydev);
-	phy_disconnect(ndev->phydev);
+	phylink_stop(ag->phylink);
+	phylink_disconnect_phy(ag->phylink);
 	ag71xx_hw_disable(ag);
 
 	return 0;
@@ -1394,14 +1561,6 @@ err_drop:
 	return NETDEV_TX_OK;
 }
 
-static int ag71xx_do_ioctl(struct net_device *ndev, struct ifreq *ifr, int cmd)
-{
-	if (!ndev->phydev)
-		return -EINVAL;
-
-	return phy_mii_ioctl(ndev->phydev, ifr, cmd);
-}
-
 static void ag71xx_oom_timer_handler(struct timer_list *t)
 {
 	struct ag71xx *ag = from_timer(ag, t, oom_timer);
@@ -1409,7 +1568,7 @@ static void ag71xx_oom_timer_handler(struct timer_list *t)
 	napi_schedule(&ag->napi);
 }
 
-static void ag71xx_tx_timeout(struct net_device *ndev)
+static void ag71xx_tx_timeout(struct net_device *ndev, unsigned int txqueue)
 {
 	struct ag71xx *ag = netdev_priv(ndev);
 
@@ -1422,13 +1581,14 @@ static void ag71xx_restart_work_func(struct work_struct *work)
 {
 	struct ag71xx *ag = container_of(work, struct ag71xx,
 					 restart_work.work);
-	struct net_device *ndev = ag->ndev;
 
 	rtnl_lock();
 	ag71xx_hw_disable(ag);
 	ag71xx_hw_enable(ag);
-	if (ndev->phydev->link)
-		ag71xx_link_adjust(ag, false);
+
+	phylink_stop(ag->phylink);
+	phylink_start(ag->phylink);
+
 	rtnl_unlock();
 }
 
@@ -1437,9 +1597,9 @@ static int ag71xx_rx_packets(struct ag71xx *ag, int limit)
 	struct net_device *ndev = ag->ndev;
 	int ring_mask, ring_size, done = 0;
 	unsigned int pktlen_mask, offset;
-	struct sk_buff *next, *skb;
 	struct ag71xx_ring *ring;
-	struct list_head rx_list;
+	struct sk_buff *skb;
+	LIST_HEAD(rx_list);
 
 	ring = &ag->rx_ring;
 	pktlen_mask = ag->dcfg->desc_pktlen_mask;
@@ -1450,13 +1610,10 @@ static int ag71xx_rx_packets(struct ag71xx *ag, int limit)
 	netif_dbg(ag, rx_status, ndev, "rx packets, limit=%d, curr=%u, dirty=%u\n",
 		  limit, ring->curr, ring->dirty);
 
-	INIT_LIST_HEAD(&rx_list);
-
 	while (done < limit) {
 		unsigned int i = ring->curr & ring_mask;
 		struct ag71xx_desc *desc = ag71xx_ring_desc(ring, i);
 		int pktlen;
-		int err = 0;
 
 		if (ag71xx_desc_empty(desc))
 			break;
@@ -1477,8 +1634,9 @@ static int ag71xx_rx_packets(struct ag71xx *ag, int limit)
 		ndev->stats.rx_packets++;
 		ndev->stats.rx_bytes += pktlen;
 
-		skb = build_skb(ring->buf[i].rx.rx_buf, ag71xx_buffer_size(ag));
+		skb = napi_build_skb(ring->buf[i].rx.rx_buf, ag71xx_buffer_size(ag));
 		if (!skb) {
+			ndev->stats.rx_errors++;
 			skb_free_frag(ring->buf[i].rx.rx_buf);
 			goto next;
 		}
@@ -1486,14 +1644,10 @@ static int ag71xx_rx_packets(struct ag71xx *ag, int limit)
 		skb_reserve(skb, offset);
 		skb_put(skb, pktlen);
 
-		if (err) {
-			ndev->stats.rx_dropped++;
-			kfree_skb(skb);
-		} else {
-			skb->dev = ndev;
-			skb->ip_summed = CHECKSUM_NONE;
-			list_add_tail(&skb->list, &rx_list);
-		}
+		skb->dev = ndev;
+		skb->ip_summed = CHECKSUM_NONE;
+		skb->protocol = eth_type_trans(skb, ndev);
+		list_add_tail(&skb->list, &rx_list);
 
 next:
 		ring->buf[i].rx.rx_buf = NULL;
@@ -1504,8 +1658,6 @@ next:
 
 	ag71xx_ring_rx_refill(ag);
 
-	list_for_each_entry_safe(skb, next, &rx_list, list)
-		skb->protocol = eth_type_trans(skb, ndev);
 	netif_receive_skb_list(&rx_list);
 
 	netif_dbg(ag, rx_status, ndev, "rx finish, curr=%u, dirty=%u, done=%d\n",
@@ -1523,7 +1675,7 @@ static int ag71xx_poll(struct napi_struct *napi, int limit)
 	int tx_done, rx_done;
 	u32 status;
 
-	tx_done = ag71xx_tx_packets(ag, false);
+	tx_done = ag71xx_tx_packets(ag, false, limit);
 
 	netif_dbg(ag, rx_status, ndev, "processing RX ring\n");
 	rx_done = ag71xx_rx_packets(ag, limit);
@@ -1607,7 +1759,7 @@ static int ag71xx_change_mtu(struct net_device *ndev, int new_mtu)
 {
 	struct ag71xx *ag = netdev_priv(ndev);
 
-	ndev->mtu = new_mtu;
+	WRITE_ONCE(ndev->mtu, new_mtu);
 	ag71xx_wr(ag, AG71XX_REG_MAC_MFL,
 		  ag71xx_max_frame_len(ndev->mtu));
 
@@ -1618,7 +1770,7 @@ static const struct net_device_ops ag71xx_netdev_ops = {
 	.ndo_open		= ag71xx_open,
 	.ndo_stop		= ag71xx_stop,
 	.ndo_start_xmit		= ag71xx_hard_start_xmit,
-	.ndo_do_ioctl		= ag71xx_do_ioctl,
+	.ndo_eth_ioctl		= ag71xx_do_ioctl,
 	.ndo_tx_timeout		= ag71xx_tx_timeout,
 	.ndo_change_mtu		= ag71xx_change_mtu,
 	.ndo_set_mac_address	= eth_mac_addr,
@@ -1635,7 +1787,7 @@ static int ag71xx_probe(struct platform_device *pdev)
 	const struct ag71xx_dcfg *dcfg;
 	struct net_device *ndev;
 	struct resource *res;
-	const void *mac_addr;
+	struct clk *clk_eth;
 	int tx_size, err, i;
 	struct ag71xx *ag;
 
@@ -1666,11 +1818,10 @@ static int ag71xx_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	ag->clk_eth = devm_clk_get(&pdev->dev, "eth");
-	if (IS_ERR(ag->clk_eth)) {
-		netif_err(ag, probe, ndev, "Failed to get eth clk.\n");
-		return PTR_ERR(ag->clk_eth);
-	}
+	clk_eth = devm_clk_get_enabled(&pdev->dev, "eth");
+	if (IS_ERR(clk_eth))
+		return dev_err_probe(&pdev->dev, PTR_ERR(clk_eth),
+				     "Failed to get eth clk.");
 
 	SET_NETDEV_DEV(ndev, &pdev->dev);
 
@@ -1681,18 +1832,19 @@ static int ag71xx_probe(struct platform_device *pdev)
 	memcpy(ag->fifodata, dcfg->fifodata, sizeof(ag->fifodata));
 
 	ag->mac_reset = devm_reset_control_get(&pdev->dev, "mac");
-	if (IS_ERR(ag->mac_reset)) {
-		netif_err(ag, probe, ndev, "missing mac reset\n");
-		err = PTR_ERR(ag->mac_reset);
-		goto err_free;
-	}
+	if (IS_ERR(ag->mac_reset))
+		return dev_err_probe(&pdev->dev, PTR_ERR(ag->mac_reset),
+				     "missing mac reset");
 
-	ag->mac_base = devm_ioremap_nocache(&pdev->dev, res->start,
-					    resource_size(res));
-	if (!ag->mac_base) {
-		err = -ENOMEM;
-		goto err_free;
-	}
+	ag->mac_base = devm_ioremap_resource(&pdev->dev, res);
+	if (IS_ERR(ag->mac_base))
+		return PTR_ERR(ag->mac_base);
+
+	/* ensure that HW is in manual polling mode before interrupts are
+	 * activated. Otherwise ag71xx_interrupt might call napi_schedule
+	 * before it is initialized by netif_napi_add.
+	 */
+	ag71xx_int_disable(ag, AG71XX_INT_POLL);
 
 	ndev->irq = platform_get_irq(pdev, 0);
 	err = devm_request_irq(&pdev->dev, ndev->irq, ag71xx_interrupt,
@@ -1700,10 +1852,11 @@ static int ag71xx_probe(struct platform_device *pdev)
 	if (err) {
 		netif_err(ag, probe, ndev, "unable to request IRQ %d\n",
 			  ndev->irq);
-		goto err_free;
+		return err;
 	}
 
 	ndev->netdev_ops = &ag71xx_netdev_ops;
+	ndev->ethtool_ops = &ag71xx_ethtool_ops;
 
 	INIT_DELAYED_WORK(&ag->restart_work, ag71xx_restart_work_func);
 	timer_setup(&ag->oom_timer, ag71xx_oom_timer_handler, 0);
@@ -1727,37 +1880,29 @@ static int ag71xx_probe(struct platform_device *pdev)
 	ag->stop_desc = dmam_alloc_coherent(&pdev->dev,
 					    sizeof(struct ag71xx_desc),
 					    &ag->stop_desc_dma, GFP_KERNEL);
-	if (!ag->stop_desc) {
-		err = -ENOMEM;
-		goto err_free;
-	}
+	if (!ag->stop_desc)
+		return -ENOMEM;
 
 	ag->stop_desc->data = 0;
 	ag->stop_desc->ctrl = 0;
 	ag->stop_desc->next = (u32)ag->stop_desc_dma;
 
-	mac_addr = of_get_mac_address(np);
-	if (!IS_ERR(mac_addr))
-		memcpy(ndev->dev_addr, mac_addr, ETH_ALEN);
-	if (IS_ERR(mac_addr) || !is_valid_ether_addr(ndev->dev_addr)) {
-		netif_err(ag, probe, ndev, "invalid MAC address, using random address\n");
-		eth_random_addr(ndev->dev_addr);
-	}
-
-	ag->phy_if_mode = of_get_phy_mode(np);
-	if (ag->phy_if_mode < 0) {
-		netif_err(ag, probe, ndev, "missing phy-mode property in DT\n");
-		err = ag->phy_if_mode;
-		goto err_free;
-	}
-
-	netif_napi_add(ndev, &ag->napi, ag71xx_poll, AG71XX_NAPI_WEIGHT);
-
-	err = clk_prepare_enable(ag->clk_eth);
+	err = of_get_ethdev_address(np, ndev);
+	if (err == -EPROBE_DEFER)
+		return err;
 	if (err) {
-		netif_err(ag, probe, ndev, "Failed to enable eth clk.\n");
-		goto err_free;
+		netif_err(ag, probe, ndev, "invalid MAC address, using random address\n");
+		eth_hw_addr_random(ndev);
 	}
+
+	err = of_get_phy_mode(np, &ag->phy_if_mode);
+	if (err) {
+		netif_err(ag, probe, ndev, "missing phy-mode property in DT\n");
+		return err;
+	}
+
+	netif_napi_add_weight(ndev, &ag->napi, ag71xx_poll,
+			      AG71XX_NAPI_WEIGHT);
 
 	ag71xx_wr(ag, AG71XX_REG_MAC_CFG1, 0);
 
@@ -1765,45 +1910,22 @@ static int ag71xx_probe(struct platform_device *pdev)
 
 	err = ag71xx_mdio_probe(ag);
 	if (err)
-		goto err_put_clk;
+		return err;
 
-	platform_set_drvdata(pdev, ndev);
+	err = ag71xx_phylink_setup(ag);
+	if (err)
+		return dev_err_probe(&pdev->dev, err,
+				     "failed to setup phylink");
 
-	err = register_netdev(ndev);
+	err = devm_register_netdev(&pdev->dev, ndev);
 	if (err) {
 		netif_err(ag, probe, ndev, "unable to register net device\n");
-		platform_set_drvdata(pdev, NULL);
-		goto err_mdio_remove;
+		return err;
 	}
 
 	netif_info(ag, probe, ndev, "Atheros AG71xx at 0x%08lx, irq %d, mode:%s\n",
 		   (unsigned long)ag->mac_base, ndev->irq,
 		   phy_modes(ag->phy_if_mode));
-
-	return 0;
-
-err_mdio_remove:
-	ag71xx_mdio_remove(ag);
-err_put_clk:
-	clk_disable_unprepare(ag->clk_eth);
-err_free:
-	free_netdev(ndev);
-	return err;
-}
-
-static int ag71xx_remove(struct platform_device *pdev)
-{
-	struct net_device *ndev = platform_get_drvdata(pdev);
-	struct ag71xx *ag;
-
-	if (!ndev)
-		return 0;
-
-	ag = netdev_priv(ndev);
-	unregister_netdev(ndev);
-	ag71xx_mdio_remove(ag);
-	clk_disable_unprepare(ag->clk_eth);
-	platform_set_drvdata(pdev, NULL);
 
 	return 0;
 }
@@ -1889,10 +2011,10 @@ static const struct of_device_id ag71xx_match[] = {
 	{ .compatible = "qca,qca9560-eth", .data = &ag71xx_dcfg_qca9550 },
 	{}
 };
+MODULE_DEVICE_TABLE(of, ag71xx_match);
 
 static struct platform_driver ag71xx_driver = {
 	.probe		= ag71xx_probe,
-	.remove		= ag71xx_remove,
 	.driver = {
 		.name	= "ag71xx",
 		.of_match_table = ag71xx_match,
@@ -1900,4 +2022,5 @@ static struct platform_driver ag71xx_driver = {
 };
 
 module_platform_driver(ag71xx_driver);
+MODULE_DESCRIPTION("Atheros AR71xx built-in ethernet mac driver");
 MODULE_LICENSE("GPL v2");

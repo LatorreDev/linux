@@ -32,7 +32,7 @@
  *		  Experimentally I found out that only a combination of
  *		  OCKS0=1, OCKS1=1 (128fs, 64fs output) and ice1724 -
  *		  VT1724_MT_I2S_MCLK_128X=0 (256fs input) yields correct
- *		  sampling rate. That means the the FPGA doubles the
+ *		  sampling rate. That means that the FPGA doubles the
  *		  MCK01 rate.
  *
  *	Copyright (c) 2003 Takashi Iwai <tiwai@suse.de>
@@ -170,14 +170,9 @@ static int stac9460_dac_vol_put(struct snd_kcontrol *kcontrol, struct snd_ctl_el
 	tmp = stac9460_get(ice, idx);
 	ovol = 0x7f - (tmp & 0x7f);
 	change = (ovol != nvol);
-	if (change) {
-		ovol =  (0x7f - nvol) | (tmp & 0x80);
-		/*
-		dev_dbg(ice->card->dev, "DAC Volume: reg 0x%02x: 0x%02x\n",
-		       idx, ovol);
-		*/
+	if (change)
 		stac9460_put(ice, idx, (0x7f - nvol) | (tmp & 0x80));
-	}
+
 	return change;
 }
 
@@ -346,7 +341,7 @@ static const DECLARE_TLV_DB_SCALE(db_scale_adc, 0, 150, 0);
  * mixers
  */
 
-static struct snd_kcontrol_new stac_controls[] = {
+static const struct snd_kcontrol_new stac_controls[] = {
 	{
 		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 		.name = "Master Playback Switch",
@@ -578,7 +573,7 @@ static int ak4114_input_sw_put(struct snd_kcontrol *kcontrol,
 }
 
 
-static struct snd_kcontrol_new ak4114_controls[] = {
+static const struct snd_kcontrol_new ak4114_controls[] = {
 	{
 		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 		.name = "MIODIO IEC958 Capture Input",
@@ -753,7 +748,7 @@ static int prodigy192_init(struct snd_ice1712 *ice)
  * hence the driver needs to sets up it properly.
  */
 
-static unsigned char prodigy71_eeprom[] = {
+static const unsigned char prodigy71_eeprom[] = {
 	[ICE_EEP2_SYSCONF]     = 0x6a,	/* 49MHz crystal, mpu401,
 					 * spdif-in+ 1 stereo ADC,
 					 * 3 stereo DACs

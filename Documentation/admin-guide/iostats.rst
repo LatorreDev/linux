@@ -2,124 +2,111 @@
 I/O statistics fields
 =====================
 
-Since 2.4.20 (and some versions before, with patches), and 2.5.45,
-more extensive disk statistics have been introduced to help measure disk
-activity. Tools such as ``sar`` and ``iostat`` typically interpret these and do
-the work for you, but in case you are interested in creating your own
-tools, the fields are explained here.
+The kernel exposes disk statistics via ``/proc/diskstats`` and
+``/sys/block/<device>/stat``. These stats are usually accessed via tools
+such as ``sar`` and ``iostat``.
 
-In 2.4 now, the information is found as additional fields in
-``/proc/partitions``.  In 2.6 and upper, the same information is found in two
-places: one is in the file ``/proc/diskstats``, and the other is within
-the sysfs file system, which must be mounted in order to obtain
-the information. Throughout this document we'll assume that sysfs
-is mounted on ``/sys``, although of course it may be mounted anywhere.
-Both ``/proc/diskstats`` and sysfs use the same source for the information
-and so should not differ.
+Here are examples using a disk with two partitions::
 
-Here are examples of these different formats::
+   /proc/diskstats:
+     259       0 nvme0n1 255999 814 12369153 47919 996852 81 36123024 425995 0 301795 580470 0 0 0 0 60602 106555
+     259       1 nvme0n1p1 492 813 17572 96 848 81 108288 210 0 76 307 0 0 0 0 0 0
+     259       2 nvme0n1p2 255401 1 12343477 47799 996004 0 36014736 425784 0 344336 473584 0 0 0 0 0 0
 
-   2.4:
-      3     0   39082680 hda 446216 784926 9550688 4382310 424847 312726 5922052 19310380 0 3376340 23705160
-      3     1    9221278 hda1 35486 0 35496 38030 0 0 0 0 0 38030 38030
+   /sys/block/nvme0n1/stat:
+     255999 814 12369153 47919 996858 81 36123056 426009 0 301809 580491 0 0 0 0 60605 106562
 
-   2.6+ sysfs:
-      446216 784926 9550688 4382310 424847 312726 5922052 19310380 0 3376340 23705160
-      35486    38030    38030    38030
+   /sys/block/nvme0n1/nvme0n1p1/stat:
+     492 813 17572 96 848 81 108288 210 0 76 307 0 0 0 0 0 0
 
-   2.6+ diskstats:
-      3    0   hda 446216 784926 9550688 4382310 424847 312726 5922052 19310380 0 3376340 23705160
-      3    1   hda1 35486 38030 38030 38030
+Both files contain the same 17 statistics. ``/sys/block/<device>/stat``
+contains the fields for ``<device>``. In ``/proc/diskstats`` the fields
+are prefixed with the major and minor device numbers and the device
+name. In the example above, the first stat value for ``nvme0n1`` is
+255999 in both files.
 
-   4.18+ diskstats:
-      3    0   hda 446216 784926 9550688 4382310 424847 312726 5922052 19310380 0 3376340 23705160 0 0 0 0
+The sysfs ``stat`` file is efficient for monitoring a small, known set
+of disks. If you're tracking a large number of devices,
+``/proc/diskstats`` is often the better choice since it avoids the
+overhead of opening and closing multiple files for each snapshot.
 
-On 2.4 you might execute ``grep 'hda ' /proc/partitions``. On 2.6+, you have
-a choice of ``cat /sys/block/hda/stat`` or ``grep 'hda ' /proc/diskstats``.
-
-The advantage of one over the other is that the sysfs choice works well
-if you are watching a known, small set of disks.  ``/proc/diskstats`` may
-be a better choice if you are watching a large number of disks because
-you'll avoid the overhead of 50, 100, or 500 or more opens/closes with
-each snapshot of your disk statistics.
-
-In 2.4, the statistics fields are those after the device name. In
-the above example, the first field of statistics would be 446216.
-By contrast, in 2.6+ if you look at ``/sys/block/hda/stat``, you'll
-find just the eleven fields, beginning with 446216.  If you look at
-``/proc/diskstats``, the eleven fields will be preceded by the major and
-minor device numbers, and device name.  Each of these formats provides
-eleven fields of statistics, each meaning exactly the same things.
-All fields except field 9 are cumulative since boot.  Field 9 should
-go to zero as I/Os complete; all others only increase (unless they
-overflow and wrap).  Yes, these are (32-bit or 64-bit) unsigned long
-(native word size) numbers, and on a very busy or long-lived system they
-may wrap. Applications should be prepared to deal with that; unless
-your observations are measured in large numbers of minutes or hours,
-they should not wrap twice before you notice them.
+All fields are cumulative, monotonic counters, except for field 9, which
+resets to zero as I/Os complete. The remaining fields reset at boot, on
+device reattachment or reinitialization, or when the underlying counter
+overflows. Applications reading these counters should detect and handle
+resets when comparing stat snapshots.
 
 Each set of stats only applies to the indicated device; if you want
 system-wide stats you'll have to find all the devices and sum them all up.
 
-Field  1 -- # of reads completed
+Field  1 -- # of reads completed (unsigned long)
     This is the total number of reads completed successfully.
 
-Field  2 -- # of reads merged, field 6 -- # of writes merged
+Field  2 -- # of reads merged, field 6 -- # of writes merged (unsigned long)
     Reads and writes which are adjacent to each other may be merged for
     efficiency.  Thus two 4K reads may become one 8K read before it is
     ultimately handed to the disk, and so it will be counted (and queued)
     as only one I/O.  This field lets you know how often this was done.
 
-Field  3 -- # of sectors read
+Field  3 -- # of sectors read (unsigned long)
     This is the total number of sectors read successfully.
 
-Field  4 -- # of milliseconds spent reading
+Field  4 -- # of milliseconds spent reading (unsigned int)
     This is the total number of milliseconds spent by all reads (as
-    measured from __make_request() to end_that_request_last()).
+    measured from blk_mq_alloc_request() to __blk_mq_end_request()).
 
-Field  5 -- # of writes completed
+Field  5 -- # of writes completed (unsigned long)
     This is the total number of writes completed successfully.
 
-Field  6 -- # of writes merged
+Field  6 -- # of writes merged  (unsigned long)
     See the description of field 2.
 
-Field  7 -- # of sectors written
+Field  7 -- # of sectors written (unsigned long)
     This is the total number of sectors written successfully.
 
-Field  8 -- # of milliseconds spent writing
+Field  8 -- # of milliseconds spent writing (unsigned int)
     This is the total number of milliseconds spent by all writes (as
-    measured from __make_request() to end_that_request_last()).
+    measured from blk_mq_alloc_request() to __blk_mq_end_request()).
 
-Field  9 -- # of I/Os currently in progress
+Field  9 -- # of I/Os currently in progress (unsigned int)
     The only field that should go to zero. Incremented as requests are
     given to appropriate struct request_queue and decremented as they finish.
 
-Field 10 -- # of milliseconds spent doing I/Os
+Field 10 -- # of milliseconds spent doing I/Os (unsigned int)
     This field increases so long as field 9 is nonzero.
 
     Since 5.0 this field counts jiffies when at least one request was
     started or completed. If request runs more than 2 jiffies then some
-    I/O time will not be accounted unless there are other requests.
+    I/O time might be not accounted in case of concurrent requests.
 
-Field 11 -- weighted # of milliseconds spent doing I/Os
+Field 11 -- weighted # of milliseconds spent doing I/Os (unsigned int)
     This field is incremented at each I/O start, I/O completion, I/O
     merge, or read of these stats by the number of I/Os in progress
     (field 9) times the number of milliseconds spent doing I/O since the
     last update of this field.  This can provide an easy measure of both
     I/O completion time and the backlog that may be accumulating.
 
-Field 12 -- # of discards completed
+Field 12 -- # of discards completed (unsigned long)
     This is the total number of discards completed successfully.
 
-Field 13 -- # of discards merged
+Field 13 -- # of discards merged (unsigned long)
     See the description of field 2
 
-Field 14 -- # of sectors discarded
+Field 14 -- # of sectors discarded (unsigned long)
     This is the total number of sectors discarded successfully.
 
-Field 15 -- # of milliseconds spent discarding
+Field 15 -- # of milliseconds spent discarding (unsigned int)
     This is the total number of milliseconds spent by all discards (as
-    measured from __make_request() to end_that_request_last()).
+    measured from blk_mq_alloc_request() to __blk_mq_end_request()).
+
+Field 16 -- # of flush requests completed
+    This is the total number of flush requests completed successfully.
+
+    Block layer combines flush requests and executes at most one at a time.
+    This counts flush requests executed by disk. Not tracked for partitions.
+
+Field 17 -- # of milliseconds spent flushing
+    This is the total number of milliseconds spent by all flush requests.
 
 To avoid introducing performance bottlenecks, no locks are held while
 modifying these counters.  This implies that minor inaccuracies may be
@@ -132,6 +119,9 @@ almost a non-issue.  When the statistics are read, the per-CPU counters
 are summed (possibly overflowing the unsigned long variable they are
 summed to) and the result given to the user.  There is no convenient
 user interface for accessing the per-CPU counters themselves.
+
+Since 4.19 request times are measured with nanoseconds precision and
+truncated to milliseconds before showing in this interface.
 
 Disks vs Partitions
 -------------------

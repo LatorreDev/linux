@@ -68,12 +68,7 @@ static int upd60620_read_status(struct phy_device *phydev)
 			mii_lpa_to_linkmode_lpa_t(phydev->lp_advertising,
 						  phy_state);
 
-			if (phydev->duplex == DUPLEX_FULL) {
-				if (phy_state & LPA_PAUSE_CAP)
-					phydev->pause = 1;
-				if (phy_state & LPA_PAUSE_ASYM)
-					phydev->asym_pause = 1;
-			}
+			phy_resolve_aneg_pause(phydev);
 		}
 	}
 	return 0;
@@ -95,7 +90,7 @@ static struct phy_driver upd60620_driver[1] = { {
 
 module_phy_driver(upd60620_driver);
 
-static struct mdio_device_id __maybe_unused upd60620_tbl[] = {
+static const struct mdio_device_id __maybe_unused upd60620_tbl[] = {
 	{ UPD60620_PHY_ID, 0xfffffffe },
 	{ }
 };

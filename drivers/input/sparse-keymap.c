@@ -176,8 +176,7 @@ int sparse_keymap_setup(struct input_dev *dev,
 	for (e = keymap; e->type != KE_END; e++)
 		map_size++;
 
-	map = devm_kmemdup(&dev->dev, keymap, map_size * sizeof(*map),
-			   GFP_KERNEL);
+	map = devm_kmemdup_array(&dev->dev, keymap, map_size, sizeof(*keymap), GFP_KERNEL);
 	if (!map)
 		return -ENOMEM;
 
@@ -247,7 +246,7 @@ void sparse_keymap_report_entry(struct input_dev *dev, const struct key_entry *k
 
 	case KE_SW:
 		value = ke->sw.value;
-		/* fall through */
+		fallthrough;
 
 	case KE_VSW:
 		input_report_switch(dev, ke->sw.code, value);

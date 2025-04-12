@@ -295,19 +295,14 @@ static struct cpufreq_driver speedstep_driver = {
 	.init		= speedstep_cpu_init,
 	.get		= speedstep_get,
 	.resume		= speedstep_resume,
-	.attr		= cpufreq_generic_attr,
 };
 
 static const struct x86_cpu_id ss_smi_ids[] = {
-	{ X86_VENDOR_INTEL, 6, 0xb, },
-	{ X86_VENDOR_INTEL, 6, 0x8, },
-	{ X86_VENDOR_INTEL, 15, 2 },
+	X86_MATCH_VENDOR_FAM_MODEL(INTEL,  6, 0x8, 0),
+	X86_MATCH_VENDOR_FAM_MODEL(INTEL,  6, 0xb, 0),
+	X86_MATCH_VENDOR_FAM_MODEL(INTEL, 15, 0x2, 0),
 	{}
 };
-#if 0
-/* Not auto loaded currently */
-MODULE_DEVICE_TABLE(x86cpu, ss_smi_ids);
-#endif
 
 /**
  * speedstep_init - initializes the SpeedStep CPUFreq driver

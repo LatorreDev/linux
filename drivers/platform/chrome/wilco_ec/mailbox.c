@@ -117,13 +117,17 @@ static int wilco_ec_transfer(struct wilco_ec_device *ec,
 			     struct wilco_ec_request *rq)
 {
 	struct wilco_ec_response *rs;
-	u8 checksum;
+	int ret;
 	u8 flag;
 
 	/* Write request header, then data */
-	cros_ec_lpc_io_bytes_mec(MEC_IO_WRITE, 0, sizeof(*rq), (u8 *)rq);
-	cros_ec_lpc_io_bytes_mec(MEC_IO_WRITE, sizeof(*rq), msg->request_size,
-				 msg->request_data);
+	ret = cros_ec_lpc_io_bytes_mec(MEC_IO_WRITE, 0, sizeof(*rq), (u8 *)rq);
+	if (ret < 0)
+		return ret;
+	ret = cros_ec_lpc_io_bytes_mec(MEC_IO_WRITE, sizeof(*rq), msg->request_size,
+				       msg->request_data);
+	if (ret < 0)
+		return ret;
 
 	/* Start the command */
 	outb(EC_MAILBOX_START_COMMAND, ec->io_command->start);
@@ -149,10 +153,12 @@ static int wilco_ec_transfer(struct wilco_ec_device *ec,
 
 	/* Read back response */
 	rs = ec->data_buffer;
-	checksum = cros_ec_lpc_io_bytes_mec(MEC_IO_READ, 0,
-					    sizeof(*rs) + EC_MAILBOX_DATA_SIZE,
-					    (u8 *)rs);
-	if (checksum) {
+	ret = cros_ec_lpc_io_bytes_mec(MEC_IO_READ, 0,
+				       sizeof(*rs) + EC_MAILBOX_DATA_SIZE,
+				       (u8 *)rs);
+	if (ret < 0)
+		return ret;
+	if (ret) {
 		dev_dbg(ec->dev, "bad packet checksum 0x%02x\n", rs->checksum);
 		return -EBADMSG;
 	}
@@ -163,13 +169,13 @@ static int wilco_ec_transfer(struct wilco_ec_device *ec,
 	}
 
 	if (rs->data_size != EC_MAILBOX_DATA_SIZE) {
-		dev_dbg(ec->dev, "unexpected packet size (%u != %u)",
+		dev_dbg(ec->dev, "unexpected packet size (%u != %u)\n",
 			rs->data_size, EC_MAILBOX_DATA_SIZE);
 		return -EMSGSIZE;
 	}
 
 	if (rs->data_size < msg->response_size) {
-		dev_dbg(ec->dev, "EC didn't return enough data (%u < %zu)",
+		dev_dbg(ec->dev, "EC didn't return enough data (%u < %zu)\n",
 			rs->data_size, msg->response_size);
 		return -EMSGSIZE;
 	}

@@ -78,7 +78,6 @@ static struct phy_driver teranetics_driver[] = {
 	.phy_id_mask	= 0xffffffff,
 	.name		= "Teranetics TN2020",
 	.features       = PHY_10GBIT_FEATURES,
-	.soft_reset	= genphy_no_soft_reset,
 	.aneg_done	= teranetics_aneg_done,
 	.config_aneg    = gen10g_config_aneg,
 	.read_status	= teranetics_read_status,
@@ -88,7 +87,7 @@ static struct phy_driver teranetics_driver[] = {
 
 module_phy_driver(teranetics_driver);
 
-static struct mdio_device_id __maybe_unused teranetics_tbl[] = {
+static const struct mdio_device_id __maybe_unused teranetics_tbl[] = {
 	{ PHY_ID_TN2020, 0xffffffff },
 	{ }
 };

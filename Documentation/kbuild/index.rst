@@ -19,6 +19,11 @@ Kernel Build System
 
     issues
     reproducible-builds
+    gcc-plugins
+    llvm
+    gendwarfksyms
+
+    bash-completion
 
 .. only::  subproject and html
 

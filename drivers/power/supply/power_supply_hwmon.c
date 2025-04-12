@@ -7,10 +7,16 @@
 #include <linux/hwmon.h>
 #include <linux/power_supply.h>
 #include <linux/slab.h>
+#include "power_supply.h"
 
 struct power_supply_hwmon {
 	struct power_supply *psy;
 	unsigned long *props;
+};
+
+static const char *const ps_temp_label[] = {
+	"temp",
+	"ambient temp",
 };
 
 static int power_supply_hwmon_in_to_property(u32 attr)
@@ -38,6 +44,18 @@ static int power_supply_hwmon_curr_to_property(u32 attr)
 		return POWER_SUPPLY_PROP_CURRENT_MAX;
 	case hwmon_curr_input:
 		return POWER_SUPPLY_PROP_CURRENT_NOW;
+	default:
+		return -EINVAL;
+	}
+}
+
+static int power_supply_hwmon_power_to_property(u32 attr)
+{
+	switch (attr) {
+	case hwmon_power_input:
+		return POWER_SUPPLY_PROP_POWER_NOW;
+	case hwmon_power_average:
+		return POWER_SUPPLY_PROP_POWER_AVG;
 	default:
 		return -EINVAL;
 	}
@@ -85,6 +103,8 @@ power_supply_hwmon_to_property(enum hwmon_sensor_types type,
 		return power_supply_hwmon_in_to_property(attr);
 	case hwmon_curr:
 		return power_supply_hwmon_curr_to_property(attr);
+	case hwmon_power:
+		return power_supply_hwmon_power_to_property(attr);
 	case hwmon_temp:
 		return power_supply_hwmon_temp_to_property(attr, channel);
 	default:
@@ -96,6 +116,39 @@ static bool power_supply_hwmon_is_a_label(enum hwmon_sensor_types type,
 					   u32 attr)
 {
 	return type == hwmon_temp && attr == hwmon_temp_label;
+}
+
+struct hwmon_type_attr_list {
+	const u32 *attrs;
+	size_t n_attrs;
+};
+
+static const u32 ps_temp_attrs[] = {
+	hwmon_temp_input,
+	hwmon_temp_min, hwmon_temp_max,
+	hwmon_temp_min_alarm, hwmon_temp_max_alarm,
+};
+
+static const struct hwmon_type_attr_list ps_type_attrs[hwmon_max] = {
+	[hwmon_temp] = { ps_temp_attrs, ARRAY_SIZE(ps_temp_attrs) },
+};
+
+static bool power_supply_hwmon_has_input(
+	const struct power_supply_hwmon *psyhw,
+	enum hwmon_sensor_types type, int channel)
+{
+	const struct hwmon_type_attr_list *attr_list = &ps_type_attrs[type];
+	size_t i;
+
+	for (i = 0; i < attr_list->n_attrs; ++i) {
+		int prop = power_supply_hwmon_to_property(type,
+			attr_list->attrs[i], channel);
+
+		if (prop >= 0 && test_bit(prop, psyhw->props))
+			return true;
+	}
+
+	return false;
 }
 
 static bool power_supply_hwmon_is_writable(enum hwmon_sensor_types type,
@@ -124,9 +177,12 @@ static umode_t power_supply_hwmon_is_visible(const void *data,
 	const struct power_supply_hwmon *psyhw = data;
 	int prop;
 
-
-	if (power_supply_hwmon_is_a_label(type, attr))
-		return 0444;
+	if (power_supply_hwmon_is_a_label(type, attr)) {
+		if (power_supply_hwmon_has_input(psyhw, type, channel))
+			return 0444;
+		else
+			return 0;
+	}
 
 	prop = power_supply_hwmon_to_property(type, attr, channel);
 	if (prop < 0 || !test_bit(prop, psyhw->props))
@@ -144,7 +200,20 @@ static int power_supply_hwmon_read_string(struct device *dev,
 					  u32 attr, int channel,
 					  const char **str)
 {
-	*str = channel ? "temp" : "temp ambient";
+	switch (type) {
+	case hwmon_temp:
+		*str = ps_temp_label[channel];
+		break;
+	default:
+		/* unreachable, but see:
+		 * gcc bug #51513 [1] and clang bug #978 [2]
+		 *
+		 * [1] https://gcc.gnu.org/bugzilla/show_bug.cgi?id=51513
+		 * [2] https://github.com/ClangBuiltLinux/linux/issues/978
+		 */
+		break;
+	}
+
 	return 0;
 }
 
@@ -174,6 +243,11 @@ power_supply_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
 	case hwmon_curr:
 	case hwmon_in:
 		pspval.intval = DIV_ROUND_CLOSEST(pspval.intval, 1000);
+		break;
+	case hwmon_power:
+		/*
+		 * Power properties are already in microwatts.
+		 */
 		break;
 	/*
 	 * Temp needs to be converted from 1/10 C to milli-C
@@ -239,25 +313,28 @@ static const struct hwmon_ops power_supply_hwmon_ops = {
 	.read_string	= power_supply_hwmon_read_string,
 };
 
-static const struct hwmon_channel_info *power_supply_hwmon_info[] = {
+static const struct hwmon_channel_info * const power_supply_hwmon_info[] = {
 	HWMON_CHANNEL_INFO(temp,
 			   HWMON_T_LABEL     |
 			   HWMON_T_INPUT     |
 			   HWMON_T_MAX       |
 			   HWMON_T_MIN       |
 			   HWMON_T_MIN_ALARM |
-			   HWMON_T_MIN_ALARM,
+			   HWMON_T_MAX_ALARM,
 
 			   HWMON_T_LABEL     |
 			   HWMON_T_INPUT     |
 			   HWMON_T_MIN_ALARM |
-			   HWMON_T_LABEL     |
 			   HWMON_T_MAX_ALARM),
 
 	HWMON_CHANNEL_INFO(curr,
 			   HWMON_C_AVERAGE |
 			   HWMON_C_MAX     |
 			   HWMON_C_INPUT),
+
+	HWMON_CHANNEL_INFO(power,
+			   HWMON_P_INPUT |
+			   HWMON_P_AVERAGE),
 
 	HWMON_CHANNEL_INFO(in,
 			   HWMON_I_AVERAGE |
@@ -272,14 +349,28 @@ static const struct hwmon_chip_info power_supply_hwmon_chip_info = {
 	.info = power_supply_hwmon_info,
 };
 
-static void power_supply_hwmon_bitmap_free(void *data)
-{
-	bitmap_free(data);
-}
+static const enum power_supply_property power_supply_hwmon_props[] = {
+	POWER_SUPPLY_PROP_CURRENT_AVG,
+	POWER_SUPPLY_PROP_CURRENT_MAX,
+	POWER_SUPPLY_PROP_CURRENT_NOW,
+	POWER_SUPPLY_PROP_POWER_AVG,
+	POWER_SUPPLY_PROP_POWER_NOW,
+	POWER_SUPPLY_PROP_TEMP,
+	POWER_SUPPLY_PROP_TEMP_MAX,
+	POWER_SUPPLY_PROP_TEMP_MIN,
+	POWER_SUPPLY_PROP_TEMP_ALERT_MIN,
+	POWER_SUPPLY_PROP_TEMP_ALERT_MAX,
+	POWER_SUPPLY_PROP_TEMP_AMBIENT,
+	POWER_SUPPLY_PROP_TEMP_AMBIENT_ALERT_MIN,
+	POWER_SUPPLY_PROP_TEMP_AMBIENT_ALERT_MAX,
+	POWER_SUPPLY_PROP_VOLTAGE_AVG,
+	POWER_SUPPLY_PROP_VOLTAGE_MIN,
+	POWER_SUPPLY_PROP_VOLTAGE_MAX,
+	POWER_SUPPLY_PROP_VOLTAGE_NOW,
+};
 
 int power_supply_add_hwmon_sysfs(struct power_supply *psy)
 {
-	const struct power_supply_desc *desc = psy->desc;
 	struct power_supply_hwmon *psyhw;
 	struct device *dev = &psy->dev;
 	struct device *hwmon;
@@ -297,42 +388,19 @@ int power_supply_add_hwmon_sysfs(struct power_supply *psy)
 	}
 
 	psyhw->psy = psy;
-	psyhw->props = bitmap_zalloc(POWER_SUPPLY_PROP_TIME_TO_FULL_AVG + 1,
-				     GFP_KERNEL);
+	psyhw->props = devm_bitmap_zalloc(dev,
+					  POWER_SUPPLY_PROP_TIME_TO_FULL_AVG + 1,
+					  GFP_KERNEL);
 	if (!psyhw->props) {
 		ret = -ENOMEM;
 		goto error;
 	}
 
-	ret = devm_add_action(dev, power_supply_hwmon_bitmap_free,
-			      psyhw->props);
-	if (ret)
-		goto error;
+	for (i = 0; i < ARRAY_SIZE(power_supply_hwmon_props); i++) {
+		const enum power_supply_property prop = power_supply_hwmon_props[i];
 
-	for (i = 0; i < desc->num_properties; i++) {
-		const enum power_supply_property prop = desc->properties[i];
-
-		switch (prop) {
-		case POWER_SUPPLY_PROP_CURRENT_AVG:
-		case POWER_SUPPLY_PROP_CURRENT_MAX:
-		case POWER_SUPPLY_PROP_CURRENT_NOW:
-		case POWER_SUPPLY_PROP_TEMP:
-		case POWER_SUPPLY_PROP_TEMP_MAX:
-		case POWER_SUPPLY_PROP_TEMP_MIN:
-		case POWER_SUPPLY_PROP_TEMP_ALERT_MIN:
-		case POWER_SUPPLY_PROP_TEMP_ALERT_MAX:
-		case POWER_SUPPLY_PROP_TEMP_AMBIENT:
-		case POWER_SUPPLY_PROP_TEMP_AMBIENT_ALERT_MIN:
-		case POWER_SUPPLY_PROP_TEMP_AMBIENT_ALERT_MAX:
-		case POWER_SUPPLY_PROP_VOLTAGE_AVG:
-		case POWER_SUPPLY_PROP_VOLTAGE_MIN:
-		case POWER_SUPPLY_PROP_VOLTAGE_MAX:
-		case POWER_SUPPLY_PROP_VOLTAGE_NOW:
+		if (power_supply_has_property(psy, prop))
 			set_bit(prop, psyhw->props);
-			break;
-		default:
-			break;
-		}
 	}
 
 	name = psy->desc->name;

@@ -279,7 +279,7 @@ static int bcm_kona_wdt_probe(struct platform_device *pdev)
 
 	wdt->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(wdt->base))
-		return -ENODEV;
+		return PTR_ERR(wdt->base);
 
 	wdt->resolution = SECWDOG_DEFAULT_RESOLUTION;
 	ret = bcm_kona_wdt_set_resolution_reg(wdt);
@@ -310,12 +310,10 @@ static int bcm_kona_wdt_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int bcm_kona_wdt_remove(struct platform_device *pdev)
+static void bcm_kona_wdt_remove(struct platform_device *pdev)
 {
 	bcm_kona_wdt_debug_exit(pdev);
 	dev_dbg(&pdev->dev, "Watchdog driver disabled");
-
-	return 0;
 }
 
 static const struct of_device_id bcm_kona_wdt_of_match[] = {

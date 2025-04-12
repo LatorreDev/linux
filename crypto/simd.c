@@ -52,15 +52,11 @@ static int simd_skcipher_setkey(struct crypto_skcipher *tfm, const u8 *key,
 {
 	struct simd_skcipher_ctx *ctx = crypto_skcipher_ctx(tfm);
 	struct crypto_skcipher *child = &ctx->cryptd_tfm->base;
-	int err;
 
 	crypto_skcipher_clear_flags(child, CRYPTO_TFM_REQ_MASK);
 	crypto_skcipher_set_flags(child, crypto_skcipher_get_flags(tfm) &
 					 CRYPTO_TFM_REQ_MASK);
-	err = crypto_skcipher_setkey(child, key, key_len);
-	crypto_skcipher_set_flags(tfm, crypto_skcipher_get_flags(child) &
-				       CRYPTO_TFM_RES_MASK);
-	return err;
+	return crypto_skcipher_setkey(child, key, key_len);
 }
 
 static int simd_skcipher_encrypt(struct skcipher_request *req)
@@ -140,27 +136,19 @@ static int simd_skcipher_init(struct crypto_skcipher *tfm)
 	return 0;
 }
 
-struct simd_skcipher_alg *simd_skcipher_create_compat(const char *algname,
+struct simd_skcipher_alg *simd_skcipher_create_compat(struct skcipher_alg *ialg,
+						      const char *algname,
 						      const char *drvname,
 						      const char *basename)
 {
 	struct simd_skcipher_alg *salg;
-	struct crypto_skcipher *tfm;
-	struct skcipher_alg *ialg;
 	struct skcipher_alg *alg;
 	int err;
-
-	tfm = crypto_alloc_skcipher(basename, CRYPTO_ALG_INTERNAL,
-				    CRYPTO_ALG_INTERNAL | CRYPTO_ALG_ASYNC);
-	if (IS_ERR(tfm))
-		return ERR_CAST(tfm);
-
-	ialg = crypto_skcipher_alg(tfm);
 
 	salg = kzalloc(sizeof(*salg), GFP_KERNEL);
 	if (!salg) {
 		salg = ERR_PTR(-ENOMEM);
-		goto out_put_tfm;
+		goto out;
 	}
 
 	salg->ialg_name = basename;
@@ -175,7 +163,8 @@ struct simd_skcipher_alg *simd_skcipher_create_compat(const char *algname,
 		     drvname) >= CRYPTO_MAX_ALG_NAME)
 		goto out_free_salg;
 
-	alg->base.cra_flags = CRYPTO_ALG_ASYNC;
+	alg->base.cra_flags = CRYPTO_ALG_ASYNC |
+		(ialg->base.cra_flags & CRYPTO_ALG_INHERITED_FLAGS);
 	alg->base.cra_priority = ialg->base.cra_priority;
 	alg->base.cra_blocksize = ialg->base.cra_blocksize;
 	alg->base.cra_alignmask = ialg->base.cra_alignmask;
@@ -198,29 +187,15 @@ struct simd_skcipher_alg *simd_skcipher_create_compat(const char *algname,
 	if (err)
 		goto out_free_salg;
 
-out_put_tfm:
-	crypto_free_skcipher(tfm);
+out:
 	return salg;
 
 out_free_salg:
 	kfree(salg);
 	salg = ERR_PTR(err);
-	goto out_put_tfm;
+	goto out;
 }
 EXPORT_SYMBOL_GPL(simd_skcipher_create_compat);
-
-struct simd_skcipher_alg *simd_skcipher_create(const char *algname,
-					       const char *basename)
-{
-	char drvname[CRYPTO_MAX_ALG_NAME];
-
-	if (snprintf(drvname, CRYPTO_MAX_ALG_NAME, "simd-%s", basename) >=
-	    CRYPTO_MAX_ALG_NAME)
-		return ERR_PTR(-ENAMETOOLONG);
-
-	return simd_skcipher_create_compat(algname, drvname, basename);
-}
-EXPORT_SYMBOL_GPL(simd_skcipher_create);
 
 void simd_skcipher_free(struct simd_skcipher_alg *salg)
 {
@@ -249,7 +224,7 @@ int simd_register_skciphers_compat(struct skcipher_alg *algs, int count,
 		algname = algs[i].base.cra_name + 2;
 		drvname = algs[i].base.cra_driver_name + 2;
 		basename = algs[i].base.cra_driver_name;
-		simd = simd_skcipher_create_compat(algname, drvname, basename);
+		simd = simd_skcipher_create_compat(algs + i, algname, drvname, basename);
 		err = PTR_ERR(simd);
 		if (IS_ERR(simd))
 			goto err_unregister;
@@ -295,15 +270,11 @@ static int simd_aead_setkey(struct crypto_aead *tfm, const u8 *key,
 {
 	struct simd_aead_ctx *ctx = crypto_aead_ctx(tfm);
 	struct crypto_aead *child = &ctx->cryptd_tfm->base;
-	int err;
 
 	crypto_aead_clear_flags(child, CRYPTO_TFM_REQ_MASK);
 	crypto_aead_set_flags(child, crypto_aead_get_flags(tfm) &
 				     CRYPTO_TFM_REQ_MASK);
-	err = crypto_aead_setkey(child, key, key_len);
-	crypto_aead_set_flags(tfm, crypto_aead_get_flags(child) &
-				   CRYPTO_TFM_RES_MASK);
-	return err;
+	return crypto_aead_setkey(child, key, key_len);
 }
 
 static int simd_aead_setauthsize(struct crypto_aead *tfm, unsigned int authsize)
@@ -390,27 +361,19 @@ static int simd_aead_init(struct crypto_aead *tfm)
 	return 0;
 }
 
-struct simd_aead_alg *simd_aead_create_compat(const char *algname,
-					      const char *drvname,
-					      const char *basename)
+static struct simd_aead_alg *simd_aead_create_compat(struct aead_alg *ialg,
+						     const char *algname,
+						     const char *drvname,
+						     const char *basename)
 {
 	struct simd_aead_alg *salg;
-	struct crypto_aead *tfm;
-	struct aead_alg *ialg;
 	struct aead_alg *alg;
 	int err;
-
-	tfm = crypto_alloc_aead(basename, CRYPTO_ALG_INTERNAL,
-				CRYPTO_ALG_INTERNAL | CRYPTO_ALG_ASYNC);
-	if (IS_ERR(tfm))
-		return ERR_CAST(tfm);
-
-	ialg = crypto_aead_alg(tfm);
 
 	salg = kzalloc(sizeof(*salg), GFP_KERNEL);
 	if (!salg) {
 		salg = ERR_PTR(-ENOMEM);
-		goto out_put_tfm;
+		goto out;
 	}
 
 	salg->ialg_name = basename;
@@ -425,7 +388,8 @@ struct simd_aead_alg *simd_aead_create_compat(const char *algname,
 		     drvname) >= CRYPTO_MAX_ALG_NAME)
 		goto out_free_salg;
 
-	alg->base.cra_flags = CRYPTO_ALG_ASYNC;
+	alg->base.cra_flags = CRYPTO_ALG_ASYNC |
+		(ialg->base.cra_flags & CRYPTO_ALG_INHERITED_FLAGS);
 	alg->base.cra_priority = ialg->base.cra_priority;
 	alg->base.cra_blocksize = ialg->base.cra_blocksize;
 	alg->base.cra_alignmask = ialg->base.cra_alignmask;
@@ -448,36 +412,20 @@ struct simd_aead_alg *simd_aead_create_compat(const char *algname,
 	if (err)
 		goto out_free_salg;
 
-out_put_tfm:
-	crypto_free_aead(tfm);
+out:
 	return salg;
 
 out_free_salg:
 	kfree(salg);
 	salg = ERR_PTR(err);
-	goto out_put_tfm;
+	goto out;
 }
-EXPORT_SYMBOL_GPL(simd_aead_create_compat);
 
-struct simd_aead_alg *simd_aead_create(const char *algname,
-				       const char *basename)
-{
-	char drvname[CRYPTO_MAX_ALG_NAME];
-
-	if (snprintf(drvname, CRYPTO_MAX_ALG_NAME, "simd-%s", basename) >=
-	    CRYPTO_MAX_ALG_NAME)
-		return ERR_PTR(-ENAMETOOLONG);
-
-	return simd_aead_create_compat(algname, drvname, basename);
-}
-EXPORT_SYMBOL_GPL(simd_aead_create);
-
-void simd_aead_free(struct simd_aead_alg *salg)
+static void simd_aead_free(struct simd_aead_alg *salg)
 {
 	crypto_unregister_aead(&salg->alg);
 	kfree(salg);
 }
-EXPORT_SYMBOL_GPL(simd_aead_free);
 
 int simd_register_aeads_compat(struct aead_alg *algs, int count,
 			       struct simd_aead_alg **simd_algs)
@@ -499,7 +447,7 @@ int simd_register_aeads_compat(struct aead_alg *algs, int count,
 		algname = algs[i].base.cra_name + 2;
 		drvname = algs[i].base.cra_driver_name + 2;
 		basename = algs[i].base.cra_driver_name;
-		simd = simd_aead_create_compat(algname, drvname, basename);
+		simd = simd_aead_create_compat(algs + i, algname, drvname, basename);
 		err = PTR_ERR(simd);
 		if (IS_ERR(simd))
 			goto err_unregister;
@@ -529,4 +477,5 @@ void simd_unregister_aeads(struct aead_alg *algs, int count,
 }
 EXPORT_SYMBOL_GPL(simd_unregister_aeads);
 
+MODULE_DESCRIPTION("Shared crypto SIMD helpers");
 MODULE_LICENSE("GPL");

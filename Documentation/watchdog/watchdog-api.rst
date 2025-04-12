@@ -168,7 +168,7 @@ the fields returned in the ident struct are:
 
 the options field can have the following bits set, and describes what
 kind of information that the GET_STATUS and GET_BOOT_STATUS ioctls can
-return.   [FIXME -- Is this correct?]
+return.
 
 	================	=========================
 	WDIOF_OVERHEAT		Reset due to CPU overheat
@@ -249,7 +249,7 @@ Note that not all devices support these two calls, and some only
 support the GETBOOTSTATUS call.
 
 Some drivers can measure the temperature using the GETTEMP ioctl.  The
-returned value is the temperature in degrees fahrenheit::
+returned value is the temperature in degrees Fahrenheit::
 
     int temperature;
     ioctl(fd, WDIOC_GETTEMP, &temperature);

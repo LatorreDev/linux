@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 #include <asm/vdso.h>
+#include <asm/vdso/vsyscall.h>
+#include <vdso/datapage.h>
 
 /*
  * Linker script for vDSO.  This is an ELF shared object prelinked to
@@ -16,18 +18,11 @@ SECTIONS
 	 * segment.
 	 */
 
-	vvar_start = . - 3 * PAGE_SIZE;
-	vvar_page = vvar_start;
+	VDSO_VVAR_SYMS
 
-	/* Place all vvars at the offsets in asm/vvar.h. */
-#define EMIT_VVAR(name, offset) vvar_ ## name = vvar_page + offset;
-#define __VVAR_KERNEL_LDS
-#include <asm/vvar.h>
-#undef __VVAR_KERNEL_LDS
-#undef EMIT_VVAR
-
-	pvclock_page = vvar_start + PAGE_SIZE;
-	hvclock_page = vvar_start + 2 * PAGE_SIZE;
+	vclock_pages = VDSO_VCLOCK_PAGES_START(vdso_u_data);
+	pvclock_page = vclock_pages + VDSO_PAGE_PVCLOCK_OFFSET * PAGE_SIZE;
+	hvclock_page = vclock_pages + VDSO_PAGE_HVCLOCK_OFFSET * PAGE_SIZE;
 
 	. = SIZEOF_HEADERS;
 
@@ -52,6 +47,13 @@ SECTIONS
 		*(.gnu.linkonce.b.*)
 	}						:text
 
+	/*
+	 * Discard .note.gnu.property sections which are unused and have
+	 * different alignment requirement from vDSO note sections.
+	 */
+	/DISCARD/ : {
+		*(.note.gnu.property)
+	}
 	.note		: { *(.note.*) }		:text	:note
 
 	.eh_frame_hdr	: { *(.eh_frame_hdr) }		:text	:eh_frame_hdr
@@ -63,10 +65,16 @@ SECTIONS
 	 * stuff that isn't used at runtime in between.
 	 */
 
-	.text		: { *(.text*) }			:text	=0x90909090,
+	.text		: {
+		*(.text*)
+	}						:text	=0x90909090,
+
+
 
 	.altinstructions	: { *(.altinstructions) }	:text
 	.altinstr_replacement	: { *(.altinstr_replacement) }	:text
+
+	__ex_table		: { *(__ex_table) }		:text
 
 	/DISCARD/ : {
 		*(.discard)

@@ -6,7 +6,7 @@
  * trigger various real hardware errors. Software based error
  * injection can fake almost all kinds of errors with the help of a
  * user space helper tool aer-inject, which can be gotten from:
- *   http://www.kernel.org/pub/linux/utils/pci/aer-inject/
+ *   https://github.com/intel/aer-inject.git
  *
  * Copyright 2009 Intel Corporation.
  *     Huang Ying <ying.huang@intel.com>
@@ -16,7 +16,7 @@
 
 #include <linux/module.h>
 #include <linux/init.h>
-#include <linux/irq.h>
+#include <linux/interrupt.h>
 #include <linux/miscdevice.h>
 #include <linux/pci.h>
 #include <linux/slab.h>
@@ -333,8 +333,11 @@ static int aer_inject(struct aer_error_inj *einj)
 	if (!dev)
 		return -ENODEV;
 	rpdev = pcie_find_root_port(dev);
+	/* If Root Port not found, try to find an RCEC */
+	if (!rpdev)
+		rpdev = dev->rcec;
 	if (!rpdev) {
-		pci_err(dev, "Root port not found\n");
+		pci_err(dev, "Neither Root Port nor RCEC found\n");
 		ret = -ENODEV;
 		goto out_put;
 	}
@@ -427,7 +430,7 @@ static int aer_inject(struct aer_error_inj *einj)
 		else
 			rperr->root_status |= PCI_ERR_ROOT_COR_RCV;
 		rperr->source_id &= 0xffff0000;
-		rperr->source_id |= (einj->bus << 8) | devfn;
+		rperr->source_id |= PCI_DEVID(einj->bus, devfn);
 	}
 	if (einj->uncor_status) {
 		if (rperr->root_status & PCI_ERR_ROOT_UNCOR_RCV)
@@ -440,7 +443,7 @@ static int aer_inject(struct aer_error_inj *einj)
 			rperr->root_status |= PCI_ERR_ROOT_NONFATAL_RCV;
 		rperr->root_status |= PCI_ERR_ROOT_UNCOR_RCV;
 		rperr->source_id &= 0x0000ffff;
-		rperr->source_id |= ((einj->bus << 8) | devfn) << 16;
+		rperr->source_id |= PCI_DEVID(einj->bus, devfn) << 16;
 	}
 	spin_unlock_irqrestore(&inject_lock, flags);
 
@@ -468,9 +471,7 @@ static int aer_inject(struct aer_error_inj *einj)
 		}
 		pci_info(edev->port, "Injecting errors %08x/%08x into device %s\n",
 			 einj->cor_status, einj->uncor_status, pci_name(dev));
-		local_irq_disable();
-		generic_handle_irq(edev->irq);
-		local_irq_enable();
+		ret = irq_inject_interrupt(edev->irq);
 	} else {
 		pci_err(rpdev, "AER device not found\n");
 		ret = -ENODEV;

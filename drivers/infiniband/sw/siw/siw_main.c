@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0 or BSD-3-Clause
+// SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 
 /* Authors: Bernard Metzler <bmt@zurich.ibm.com> */
 /* Copyright (c) 2008-2019, IBM Corporation */
@@ -16,6 +16,7 @@
 #include <linux/module.h>
 #include <linux/dma-mapping.h>
 
+#include <net/addrconf.h>
 #include <rdma/ib_verbs.h>
 #include <rdma/ib_user_verbs.h>
 #include <rdma/rdma_netlink.h>
@@ -58,7 +59,6 @@ u_char mpa_version = MPA_REVISION_2;
 const bool peer_to_peer;
 
 struct task_struct *siw_tx_thread[NR_CPUS];
-struct crypto_shash *siw_crypto_shash;
 
 static int siw_device_register(struct siw_device *sdev, const char *name)
 {
@@ -66,15 +66,15 @@ static int siw_device_register(struct siw_device *sdev, const char *name)
 	static int dev_id = 1;
 	int rv;
 
-	rv = ib_register_device(base_dev, name);
+	sdev->vendor_part_id = dev_id++;
+
+	rv = ib_register_device(base_dev, name, NULL);
 	if (rv) {
 		pr_warn("siw: device registration error %d\n", rv);
 		return rv;
 	}
-	sdev->vendor_part_id = dev_id++;
 
-	siw_dbg(base_dev, "HWaddr=%pM\n", sdev->netdev->dev_addr);
-
+	siw_dbg(base_dev, "HWaddr=%pM\n", sdev->raw_gid);
 	return 0;
 }
 
@@ -86,30 +86,6 @@ static void siw_device_cleanup(struct ib_device *base_dev)
 	xa_destroy(&sdev->mem_xa);
 }
 
-static int siw_create_tx_threads(void)
-{
-	int cpu, assigned = 0;
-
-	for_each_online_cpu(cpu) {
-		/* Skip HT cores */
-		if (cpu % cpumask_weight(topology_sibling_cpumask(cpu)))
-			continue;
-
-		siw_tx_thread[cpu] =
-			kthread_create(siw_run_sq, (unsigned long *)(long)cpu,
-				       "siw_tx/%d", cpu);
-		if (IS_ERR(siw_tx_thread[cpu])) {
-			siw_tx_thread[cpu] = NULL;
-			continue;
-		}
-		kthread_bind(siw_tx_thread[cpu], cpu);
-
-		wake_up_process(siw_tx_thread[cpu]);
-		assigned++;
-	}
-	return assigned;
-}
-
 static int siw_dev_qualified(struct net_device *netdev)
 {
 	/*
@@ -118,6 +94,7 @@ static int siw_dev_qualified(struct net_device *netdev)
 	 * <linux/if_arp.h> for type identifiers.
 	 */
 	if (netdev->type == ARPHRD_ETHER || netdev->type == ARPHRD_IEEE802 ||
+	    netdev->type == ARPHRD_NONE ||
 	    (netdev->type == ARPHRD_LOOPBACK && loopback_enabled))
 		return 1;
 
@@ -131,9 +108,20 @@ static struct {
 	int num_nodes;
 } siw_cpu_info;
 
+static void siw_destroy_cpulist(int number)
+{
+	int i = 0;
+
+	while (i < number)
+		kfree(siw_cpu_info.tx_valid_cpus[i++]);
+
+	kfree(siw_cpu_info.tx_valid_cpus);
+	siw_cpu_info.tx_valid_cpus = NULL;
+}
+
 static int siw_init_cpulist(void)
 {
-	int i, num_nodes = num_possible_nodes();
+	int i, num_nodes = nr_node_ids;
 
 	memset(siw_tx_thread, 0, sizeof(siw_tx_thread));
 
@@ -160,22 +148,9 @@ static int siw_init_cpulist(void)
 
 out_err:
 	siw_cpu_info.num_nodes = 0;
-	while (--i >= 0)
-		kfree(siw_cpu_info.tx_valid_cpus[i]);
-	kfree(siw_cpu_info.tx_valid_cpus);
-	siw_cpu_info.tx_valid_cpus = NULL;
+	siw_destroy_cpulist(i);
 
 	return -ENOMEM;
-}
-
-static void siw_destroy_cpulist(void)
-{
-	int i = 0;
-
-	while (i < siw_cpu_info.num_nodes)
-		kfree(siw_cpu_info.tx_valid_cpus[i++]);
-
-	kfree(siw_cpu_info.tx_valid_cpus);
 }
 
 /*
@@ -243,27 +218,9 @@ static struct ib_qp *siw_get_base_qp(struct ib_device *base_dev, int id)
 		 * siw_qp_id2obj() increments object reference count
 		 */
 		siw_qp_put(qp);
-		return qp->ib_qp;
+		return &qp->base_qp;
 	}
 	return NULL;
-}
-
-static void siw_verbs_sq_flush(struct ib_qp *base_qp)
-{
-	struct siw_qp *qp = to_siw_qp(base_qp);
-
-	down_write(&qp->state_lock);
-	siw_sq_flush(qp);
-	up_write(&qp->state_lock);
-}
-
-static void siw_verbs_rq_flush(struct ib_qp *base_qp)
-{
-	struct siw_qp *qp = to_siw_qp(base_qp);
-
-	down_write(&qp->state_lock);
-	siw_rq_flush(qp);
-	up_write(&qp->state_lock);
 }
 
 static const struct ib_device_ops siw_device_ops = {
@@ -284,8 +241,6 @@ static const struct ib_device_ops siw_device_ops = {
 	.destroy_cq = siw_destroy_cq,
 	.destroy_qp = siw_destroy_qp,
 	.destroy_srq = siw_destroy_srq,
-	.drain_rq = siw_verbs_rq_flush,
-	.drain_sq = siw_verbs_sq_flush,
 	.get_dma_mr = siw_get_dma_mr,
 	.get_port_immutable = siw_get_port_immutable,
 	.iw_accept = siw_accept,
@@ -298,6 +253,7 @@ static const struct ib_device_ops siw_device_ops = {
 	.iw_rem_ref = siw_qp_put_ref,
 	.map_mr_sg = siw_map_mr_sg,
 	.mmap = siw_mmap,
+	.mmap_free = siw_mmap_free,
 	.modify_qp = siw_verbs_modify_qp,
 	.modify_srq = siw_modify_srq,
 	.poll_cq = siw_poll_cq,
@@ -306,7 +262,6 @@ static const struct ib_device_ops siw_device_ops = {
 	.post_srq_recv = siw_post_srq_recv,
 	.query_device = siw_query_device,
 	.query_gid = siw_query_gid,
-	.query_pkey = siw_query_pkey,
 	.query_port = siw_query_port,
 	.query_qp = siw_query_qp,
 	.query_srq = siw_query_srq,
@@ -315,6 +270,7 @@ static const struct ib_device_ops siw_device_ops = {
 
 	INIT_RDMA_OBJ_SIZE(ib_cq, siw_cq, base_cq),
 	INIT_RDMA_OBJ_SIZE(ib_pd, siw_pd, base_pd),
+	INIT_RDMA_OBJ_SIZE(ib_qp, siw_qp, base_qp),
 	INIT_RDMA_OBJ_SIZE(ib_srq, siw_srq, base_srq),
 	INIT_RDMA_OBJ_SIZE(ib_ucontext, siw_ucontext, base_ucontext),
 };
@@ -323,67 +279,27 @@ static struct siw_device *siw_device_create(struct net_device *netdev)
 {
 	struct siw_device *sdev = NULL;
 	struct ib_device *base_dev;
-	struct device *parent = netdev->dev.parent;
 	int rv;
 
-	if (!parent) {
-		/*
-		 * The loopback device has no parent device,
-		 * so it appears as a top-level device. To support
-		 * loopback device connectivity, take this device
-		 * as the parent device. Skip all other devices
-		 * w/o parent device.
-		 */
-		if (netdev->type != ARPHRD_LOOPBACK) {
-			pr_warn("siw: device %s error: no parent device\n",
-				netdev->name);
-			return NULL;
-		}
-		parent = &netdev->dev;
-	}
 	sdev = ib_alloc_device(siw_device, base_dev);
 	if (!sdev)
 		return NULL;
 
 	base_dev = &sdev->base_dev;
 
-	sdev->netdev = netdev;
-
-	if (netdev->type != ARPHRD_LOOPBACK) {
-		memcpy(&base_dev->node_guid, netdev->dev_addr, 6);
+	if (netdev->addr_len) {
+		memcpy(sdev->raw_gid, netdev->dev_addr,
+		       min_t(unsigned int, netdev->addr_len, ETH_ALEN));
 	} else {
 		/*
-		 * The loopback device does not have a HW address,
-		 * but connection mangagement lib expects gid != 0
+		 * This device does not have a HW address, but
+		 * connection mangagement requires a unique gid.
 		 */
-		size_t gidlen = min_t(size_t, strlen(base_dev->name), 6);
-
-		memcpy(&base_dev->node_guid, base_dev->name, gidlen);
+		eth_random_addr(sdev->raw_gid);
 	}
-	base_dev->uverbs_cmd_mask =
-		(1ull << IB_USER_VERBS_CMD_QUERY_DEVICE) |
-		(1ull << IB_USER_VERBS_CMD_QUERY_PORT) |
-		(1ull << IB_USER_VERBS_CMD_GET_CONTEXT) |
-		(1ull << IB_USER_VERBS_CMD_ALLOC_PD) |
-		(1ull << IB_USER_VERBS_CMD_DEALLOC_PD) |
-		(1ull << IB_USER_VERBS_CMD_REG_MR) |
-		(1ull << IB_USER_VERBS_CMD_DEREG_MR) |
-		(1ull << IB_USER_VERBS_CMD_CREATE_COMP_CHANNEL) |
-		(1ull << IB_USER_VERBS_CMD_CREATE_CQ) |
-		(1ull << IB_USER_VERBS_CMD_POLL_CQ) |
-		(1ull << IB_USER_VERBS_CMD_REQ_NOTIFY_CQ) |
-		(1ull << IB_USER_VERBS_CMD_DESTROY_CQ) |
-		(1ull << IB_USER_VERBS_CMD_CREATE_QP) |
-		(1ull << IB_USER_VERBS_CMD_QUERY_QP) |
-		(1ull << IB_USER_VERBS_CMD_MODIFY_QP) |
-		(1ull << IB_USER_VERBS_CMD_DESTROY_QP) |
-		(1ull << IB_USER_VERBS_CMD_POST_SEND) |
-		(1ull << IB_USER_VERBS_CMD_POST_RECV) |
-		(1ull << IB_USER_VERBS_CMD_CREATE_SRQ) |
-		(1ull << IB_USER_VERBS_CMD_POST_SRQ_RECV) |
-		(1ull << IB_USER_VERBS_CMD_MODIFY_SRQ) |
-		(1ull << IB_USER_VERBS_CMD_QUERY_SRQ) |
-		(1ull << IB_USER_VERBS_CMD_DESTROY_SRQ);
+	addrconf_addr_eui48((u8 *)&base_dev->node_guid, sdev->raw_gid);
+
+	base_dev->uverbs_cmd_mask |= BIT_ULL(IB_USER_VERBS_CMD_POST_SEND);
 
 	base_dev->node_type = RDMA_NODE_RNIC;
 	memcpy(base_dev->node_desc, SIW_NODE_DESC_COMMON,
@@ -395,9 +311,10 @@ static struct siw_device *siw_device_create(struct net_device *netdev)
 	 * per physical port.
 	 */
 	base_dev->phys_port_cnt = 1;
-	base_dev->dev.parent = parent;
-	base_dev->dev.dma_ops = &dma_virt_ops;
 	base_dev->num_comp_vectors = num_possible_cpus();
+
+	xa_init_flags(&sdev->qp_xa, XA_FLAGS_ALLOC1);
+	xa_init_flags(&sdev->mem_xa, XA_FLAGS_ALLOC1);
 
 	ib_set_device_ops(base_dev, &siw_device_ops);
 	rv = ib_device_set_netdev(base_dev, netdev, 1);
@@ -408,7 +325,7 @@ static struct siw_device *siw_device_create(struct net_device *netdev)
 	       sizeof(base_dev->iw_ifname));
 
 	/* Disable TCP port mapping */
-	base_dev->iw_driver_flags = IW_F_NO_PORT_MAP,
+	base_dev->iw_driver_flags = IW_F_NO_PORT_MAP;
 
 	sdev->attrs.max_qp = SIW_MAX_QP;
 	sdev->attrs.max_qp_wr = SIW_MAX_QP_WR;
@@ -421,13 +338,9 @@ static struct siw_device *siw_device_create(struct net_device *netdev)
 	sdev->attrs.max_mr = SIW_MAX_MR;
 	sdev->attrs.max_pd = SIW_MAX_PD;
 	sdev->attrs.max_mw = SIW_MAX_MW;
-	sdev->attrs.max_fmr = SIW_MAX_FMR;
 	sdev->attrs.max_srq = SIW_MAX_SRQ;
 	sdev->attrs.max_srq_wr = SIW_MAX_SRQ_WR;
 	sdev->attrs.max_srq_sge = SIW_MAX_SGE;
-
-	xa_init_flags(&sdev->qp_xa, XA_FLAGS_ALLOC1);
-	xa_init_flags(&sdev->mem_xa, XA_FLAGS_ALLOC1);
 
 	INIT_LIST_HEAD(&sdev->cep_list);
 	INIT_LIST_HEAD(&sdev->qp_list);
@@ -439,7 +352,7 @@ static struct siw_device *siw_device_create(struct net_device *netdev)
 	atomic_set(&sdev->num_mr, 0);
 	atomic_set(&sdev->num_pd, 0);
 
-	sdev->numa_node = dev_to_node(parent);
+	sdev->numa_node = dev_to_node(&netdev->dev);
 	spin_lock_init(&sdev->lock);
 
 	return sdev;
@@ -447,39 +360,6 @@ error:
 	ib_dealloc_device(base_dev);
 
 	return NULL;
-}
-
-/*
- * Network link becomes unavailable. Mark all
- * affected QP's accordingly.
- */
-static void siw_netdev_down(struct work_struct *work)
-{
-	struct siw_device *sdev =
-		container_of(work, struct siw_device, netdev_down);
-
-	struct siw_qp_attrs qp_attrs;
-	struct list_head *pos, *tmp;
-
-	memset(&qp_attrs, 0, sizeof(qp_attrs));
-	qp_attrs.state = SIW_QP_STATE_ERROR;
-
-	list_for_each_safe(pos, tmp, &sdev->qp_list) {
-		struct siw_qp *qp = list_entry(pos, struct siw_qp, devq);
-
-		down_write(&qp->state_lock);
-		WARN_ON(siw_qp_modify(qp, &qp_attrs, SIW_QP_ATTR_STATE));
-		up_write(&qp->state_lock);
-	}
-	ib_device_put(&sdev->base_dev);
-}
-
-static void siw_device_goes_down(struct siw_device *sdev)
-{
-	if (ib_device_try_get(&sdev->base_dev)) {
-		INIT_WORK(&sdev->netdev_down, siw_netdev_down);
-		schedule_work(&sdev->netdev_down);
-	}
 }
 
 static int siw_netdev_event(struct notifier_block *nb, unsigned long event,
@@ -491,9 +371,6 @@ static int siw_netdev_event(struct notifier_block *nb, unsigned long event,
 
 	dev_dbg(&netdev->dev, "siw: event %lu\n", event);
 
-	if (dev_net(netdev) != &init_net)
-		return NOTIFY_OK;
-
 	base_dev = ib_device_get_by_netdev(netdev, RDMA_DRIVER_SIW);
 	if (!base_dev)
 		return NOTIFY_OK;
@@ -501,20 +378,6 @@ static int siw_netdev_event(struct notifier_block *nb, unsigned long event,
 	sdev = to_siw_dev(base_dev);
 
 	switch (event) {
-	case NETDEV_UP:
-		sdev->state = IB_PORT_ACTIVE;
-		siw_port_event(sdev, 1, IB_EVENT_PORT_ACTIVE);
-		break;
-
-	case NETDEV_GOING_DOWN:
-		siw_device_goes_down(sdev);
-		break;
-
-	case NETDEV_DOWN:
-		sdev->state = IB_PORT_DOWN;
-		siw_port_event(sdev, 1, IB_EVENT_PORT_ERR);
-		break;
-
 	case NETDEV_REGISTER:
 		/*
 		 * Device registration now handled only by
@@ -532,12 +395,8 @@ static int siw_netdev_event(struct notifier_block *nb, unsigned long event,
 		siw_port_event(sdev, 1, IB_EVENT_LID_CHANGE);
 		break;
 	/*
-	 * Todo: Below netdev events are currently not handled.
+	 * All other events are not handled
 	 */
-	case NETDEV_CHANGEMTU:
-	case NETDEV_CHANGE:
-		break;
-
 	default:
 		break;
 	}
@@ -567,12 +426,7 @@ static int siw_newlink(const char *basedev_name, struct net_device *netdev)
 	sdev = siw_device_create(netdev);
 	if (sdev) {
 		dev_dbg(&netdev->dev, "siw: new device\n");
-
-		if (netif_running(netdev) && netif_carrier_ok(netdev))
-			sdev->state = IB_PORT_ACTIVE;
-		else
-			sdev->state = IB_PORT_DOWN;
-
+		ib_mark_name_assigned_by_user(&sdev->base_dev);
 		rv = siw_device_register(sdev, basedev_name);
 		if (rv)
 			ib_dealloc_device(&sdev->base_dev);
@@ -592,7 +446,6 @@ static struct rdma_link_ops siw_link_ops = {
 static __init int siw_init_module(void)
 {
 	int rv;
-	int nr_cpu;
 
 	if (SENDPAGE_THRESH < SIW_MAX_INLINE) {
 		pr_info("siw: sendpage threshold too small: %u\n",
@@ -613,20 +466,7 @@ static __init int siw_init_module(void)
 		rv = -ENOMEM;
 		goto out_error;
 	}
-	/*
-	 * Locate CRC32 algorithm. If unsuccessful, fail
-	 * loading siw only, if CRC is required.
-	 */
-	siw_crypto_shash = crypto_alloc_shash("crc32c", 0, 0);
-	if (IS_ERR(siw_crypto_shash)) {
-		pr_info("siw: Loading CRC32c failed: %ld\n",
-			PTR_ERR(siw_crypto_shash));
-		siw_crypto_shash = NULL;
-		if (mpa_crc_required) {
-			rv = -EOPNOTSUPP;
-			goto out_error;
-		}
-	}
+
 	rv = register_netdevice_notifier(&siw_netdev_nb);
 	if (rv)
 		goto out_error;
@@ -637,43 +477,27 @@ static __init int siw_init_module(void)
 	return 0;
 
 out_error:
-	for (nr_cpu = 0; nr_cpu < nr_cpu_ids; nr_cpu++) {
-		if (siw_tx_thread[nr_cpu]) {
-			siw_stop_tx_thread(nr_cpu);
-			siw_tx_thread[nr_cpu] = NULL;
-		}
-	}
-	if (siw_crypto_shash)
-		crypto_free_shash(siw_crypto_shash);
+	siw_stop_tx_threads();
 
 	pr_info("SoftIWARP attach failed. Error: %d\n", rv);
 
 	siw_cm_exit();
-	siw_destroy_cpulist();
+	siw_destroy_cpulist(siw_cpu_info.num_nodes);
 
 	return rv;
 }
 
 static void __exit siw_exit_module(void)
 {
-	int cpu;
+	siw_stop_tx_threads();
 
-	for_each_possible_cpu(cpu) {
-		if (siw_tx_thread[cpu]) {
-			siw_stop_tx_thread(cpu);
-			siw_tx_thread[cpu] = NULL;
-		}
-	}
 	unregister_netdevice_notifier(&siw_netdev_nb);
 	rdma_link_unregister(&siw_link_ops);
 	ib_unregister_driver(RDMA_DRIVER_SIW);
 
 	siw_cm_exit();
 
-	siw_destroy_cpulist();
-
-	if (siw_crypto_shash)
-		crypto_free_shash(siw_crypto_shash);
+	siw_destroy_cpulist(siw_cpu_info.num_nodes);
 
 	pr_info("SoftiWARP detached\n");
 }

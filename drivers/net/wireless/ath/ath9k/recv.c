@@ -413,7 +413,8 @@ u32 ath_calcrxfilter(struct ath_softc *sc)
 	if (sc->cur_chandef.width != NL80211_CHAN_WIDTH_20_NOHT)
 		rfilt |= ATH9K_RX_FILTER_COMP_BAR;
 
-	if (sc->cur_chan->nvifs > 1 || (sc->cur_chan->rxfilter & FIF_OTHER_BSS)) {
+	if (sc->cur_chan->nvifs > 1 ||
+	    (sc->cur_chan->rxfilter & (FIF_OTHER_BSS | FIF_MCAST_ACTION))) {
 		/* This is needed for older chips */
 		if (sc->sc_ah->hw_version.macVersion <= AR_SREV_VERSION_9160)
 			rfilt |= ATH9K_RX_FILTER_PROM;
@@ -1041,8 +1042,8 @@ static void ath_rx_count_airtime(struct ath_softc *sc,
 	if (!!(rxs->encoding == RX_ENC_HT)) {
 		/* MCS rates */
 
-		airtime += ath_pkt_duration(sc, rxs->rate_idx, len,
-					is_40, is_sgi, is_sp);
+		airtime += ath_pkt_duration(rxs->rate_idx, len,
+					    is_40, is_sgi, is_sp);
 	} else {
 
 		phy = IS_CCK_RATE(rs->rs_rate) ? WLAN_RC_PHY_CCK : WLAN_RC_PHY_OFDM;

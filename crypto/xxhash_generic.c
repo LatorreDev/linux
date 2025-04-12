@@ -4,7 +4,7 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/xxhash.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 #define XXHASH64_BLOCK_SIZE	32
 #define XXHASH64_DIGEST_SIZE	8
@@ -22,10 +22,8 @@ static int xxhash64_setkey(struct crypto_shash *tfm, const u8 *key,
 {
 	struct xxhash64_tfm_ctx *tctx = crypto_shash_ctx(tfm);
 
-	if (keylen != sizeof(tctx->seed)) {
-		crypto_shash_set_flags(tfm, CRYPTO_TFM_RES_BAD_KEY_LEN);
+	if (keylen != sizeof(tctx->seed))
 		return -EINVAL;
-	}
 	tctx->seed = get_unaligned_le64(key);
 	return 0;
 }

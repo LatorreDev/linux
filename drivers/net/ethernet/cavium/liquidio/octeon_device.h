@@ -705,25 +705,6 @@ octeon_get_dispatch(struct octeon_device *octeon_dev, u16 opcode,
  */
 struct octeon_device *lio_get_device(u32 octeon_id);
 
-/** Get the octeon id assigned to the octeon device passed as argument.
- *  This function is exported to other modules.
- *  @param dev - octeon device pointer passed as a void *.
- *  @return octeon device id
- */
-int lio_get_device_id(void *dev);
-
-static inline u16 OCTEON_MAJOR_REV(struct octeon_device *oct)
-{
-	u16 rev = (oct->rev_id & 0xC) >> 2;
-
-	return (rev == 0) ? 1 : rev;
-}
-
-static inline u16 OCTEON_MINOR_REV(struct octeon_device *oct)
-{
-	return oct->rev_id & 0x3;
-}
-
 /** Read windowed register.
  *  @param  oct   -  pointer to the Octeon device.
  *  @param  addr  -  Address of the register to read.
@@ -815,13 +796,6 @@ int octeon_init_consoles(struct octeon_device *oct);
  */
 int octeon_add_console(struct octeon_device *oct, u32 console_num,
 		       char *dbg_enb);
-
-/** write or read from a console */
-int octeon_console_write(struct octeon_device *oct, u32 console_num,
-			 char *buffer, u32 write_request_size, u32 flags);
-int octeon_console_write_avail(struct octeon_device *oct, u32 console_num);
-
-int octeon_console_read_avail(struct octeon_device *oct, u32 console_num);
 
 /** Removes all attached consoles. */
 void octeon_remove_consoles(struct octeon_device *oct);

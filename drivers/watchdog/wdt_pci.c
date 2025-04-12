@@ -426,7 +426,7 @@ static long wdtpci_ioctl(struct file *file, unsigned int cmd,
 		if (wdtpci_set_heartbeat(new_heartbeat))
 			return -EINVAL;
 		wdtpci_ping();
-		/* fall through */
+		fallthrough;
 	case WDIOC_GETTIMEOUT:
 		return put_user(heartbeat, p);
 	default:
@@ -537,7 +537,7 @@ static int wdtpci_temp_release(struct inode *inode, struct file *file)
 }
 
 /**
- *	notify_sys:
+ *	wdtpci_notify_sys:
  *	@this: our notifier block
  *	@code: the event being reported
  *	@unused: unused
@@ -563,9 +563,9 @@ static int wdtpci_notify_sys(struct notifier_block *this, unsigned long code,
 
 static const struct file_operations wdtpci_fops = {
 	.owner		= THIS_MODULE,
-	.llseek		= no_llseek,
 	.write		= wdtpci_write,
 	.unlocked_ioctl	= wdtpci_ioctl,
+	.compat_ioctl	= compat_ptr_ioctl,
 	.open		= wdtpci_open,
 	.release	= wdtpci_release,
 };
@@ -578,7 +578,6 @@ static struct miscdevice wdtpci_miscdev = {
 
 static const struct file_operations wdtpci_temp_fops = {
 	.owner		= THIS_MODULE,
-	.llseek		= no_llseek,
 	.read		= wdtpci_temp_read,
 	.open		= wdtpci_temp_open,
 	.release	= wdtpci_temp_release,

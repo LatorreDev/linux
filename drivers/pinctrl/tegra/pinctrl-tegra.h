@@ -8,16 +8,25 @@
 #ifndef __PINMUX_TEGRA_H__
 #define __PINMUX_TEGRA_H__
 
+struct tegra_pingroup_config {
+	bool is_sfsel;
+};
+
 struct tegra_pmx {
 	struct device *dev;
 	struct pinctrl_dev *pctl;
 
 	const struct tegra_pinctrl_soc_data *soc;
+	struct tegra_function *functions;
 	const char **group_pins;
 
+	struct pinctrl_gpio_range gpio_range;
+	struct pinctrl_desc desc;
 	int nbanks;
 	void __iomem **regs;
 	u32 *backup_regs;
+	/* Array of size soc->ngroups */
+	struct tegra_pingroup_config *pingroup_configs;
 };
 
 enum tegra_pinconf_param {
@@ -51,6 +60,8 @@ enum tegra_pinconf_param {
 	TEGRA_PINCONF_PARAM_SLEW_RATE_RISING,
 	/* argument: Integer, range is HW-dependant */
 	TEGRA_PINCONF_PARAM_DRIVE_TYPE,
+	/* argument: Boolean */
+	TEGRA_PINCONF_PARAM_GPIO_MODE,
 };
 
 enum tegra_pinconf_pull {
@@ -107,7 +118,8 @@ struct tegra_function {
  *			drvup, slwr, slwf, and drvtype parameters.
  * @drv_bank:		Drive fields register bank.
  * @hsm_bit:		High Speed Mode register bit.
- * @schmitt_bit:	Scmitt register bit.
+ * @sfsel_bit:		GPIO/SFIO selection register bit.
+ * @schmitt_bit:	Schmitt register bit.
  * @lpmd_bit:		Low Power Mode register bit.
  * @drvdn_bit:		Drive Down register bit.
  * @drvdn_width:	Drive Down field width.
@@ -117,6 +129,7 @@ struct tegra_function {
  * @slwr_width:		Slew Rising field width.
  * @slwf_bit:		Slew Falling register bit.
  * @slwf_width:		Slew Falling field width.
+ * @lpdr_bit:		Base driver enabling bit.
  * @drvtype_bit:	Drive type register bit.
  * @parked_bitmask:	Parked register mask. 0 if unsupported.
  *
@@ -153,12 +166,14 @@ struct tegra_pingroup {
 	s32 ioreset_bit:6;
 	s32 rcv_sel_bit:6;
 	s32 hsm_bit:6;
+	s32 sfsel_bit:6;
 	s32 schmitt_bit:6;
 	s32 lpmd_bit:6;
 	s32 drvdn_bit:6;
 	s32 drvup_bit:6;
 	s32 slwr_bit:6;
 	s32 slwf_bit:6;
+	s32 lpdr_bit:6;
 	s32 drvtype_bit:6;
 	s32 drvdn_width:6;
 	s32 drvup_width:6;
@@ -169,29 +184,36 @@ struct tegra_pingroup {
 
 /**
  * struct tegra_pinctrl_soc_data - Tegra pin controller driver configuration
- * @ngpios:	The number of GPIO pins the pin controller HW affects.
- * @pins:	An array describing all pins the pin controller affects.
- *		All pins which are also GPIOs must be listed first within the
- *		array, and be numbered identically to the GPIO controller's
- *		numbering.
- * @npins:	The numbmer of entries in @pins.
- * @functions:	An array describing all mux functions the SoC supports.
- * @nfunctions:	The numbmer of entries in @functions.
- * @groups:	An array describing all pin groups the pin SoC supports.
- * @ngroups:	The numbmer of entries in @groups.
+ * @ngpios:		The number of GPIO pins the pin controller HW affects.
+ * @gpio_compatible:	Device-tree GPIO compatible string.
+ * @pins:		An array describing all pins the pin controller affects.
+ *			All pins which are also GPIOs must be listed first within the
+ *			array, and be numbered identically to the GPIO controller's
+ *			numbering.
+ * @npins:		The number of entries in @pins.
+ * @functions:		An array describing all mux functions the SoC supports.
+ * @nfunctions:		The number of entries in @functions.
+ * @groups:		An array describing all pin groups the pin SoC supports.
+ * @ngroups:		The number of entries in @groups.
+ * @hsm_in_mux:		High-speed mode field. Only applicable to devices with one pin per group.
+ * @schmitt_in_mux:	Schmitt trigger field. Only applicable to devices with one pin per group.
+ * @drvtype_in_mux:	Drivetype field. Only applicable to devices with one pin per group.
+ * @sfsel_in_mux:	Special function selection field.
+ *			Only applicable to devices with one pin per group.
  */
 struct tegra_pinctrl_soc_data {
 	unsigned ngpios;
 	const char *gpio_compatible;
 	const struct pinctrl_pin_desc *pins;
 	unsigned npins;
-	struct tegra_function *functions;
+	const char * const *functions;
 	unsigned nfunctions;
 	const struct tegra_pingroup *groups;
 	unsigned ngroups;
 	bool hsm_in_mux;
 	bool schmitt_in_mux;
 	bool drvtype_in_mux;
+	bool sfsel_in_mux;
 };
 
 extern const struct dev_pm_ops tegra_pinctrl_pm;

@@ -28,7 +28,7 @@
 #include <asm/xive.h>
 #include <asm/opal.h>
 #include <asm/runlatch.h>
-#include <asm/code-patching.h>
+#include <asm/text-patching.h>
 #include <asm/dbell.h>
 #include <asm/kvm_ppc.h>
 #include <asm/ppc-opcode.h>
@@ -36,6 +36,7 @@
 #include <asm/kexec.h>
 #include <asm/reg.h>
 #include <asm/powernv.h>
+#include <asm/systemcfg.h>
 
 #include "powernv.h"
 
@@ -43,7 +44,7 @@
 #include <asm/udbg.h>
 #define DBG(fmt...) udbg_printf(fmt)
 #else
-#define DBG(fmt...)
+#define DBG(fmt...) do { } while (0)
 #endif
 
 static void pnv_smp_setup_cpu(int cpu)
@@ -136,13 +137,18 @@ static int pnv_smp_cpu_disable(void)
 	 * the generic fixup_irqs. --BenH.
 	 */
 	set_cpu_online(cpu, false);
-	vdso_data->processorCount--;
+#ifdef CONFIG_PPC64_PROC_SYSTEMCFG
+	systemcfg->processorCount--;
+#endif
 	if (cpu == boot_cpuid)
 		boot_cpuid = cpumask_any(cpu_online_mask);
 	if (xive_enabled())
 		xive_smp_disable_cpu();
 	else
 		xics_migrate_irqs_away();
+
+	cleanup_cpu_mmu_context();
+
 	return 0;
 }
 
@@ -158,7 +164,7 @@ static void pnv_flush_interrupts(void)
 	}
 }
 
-static void pnv_smp_cpu_kill_self(void)
+static void pnv_cpu_offline_self(void)
 {
 	unsigned long srr1, unexpected_mask, wmask;
 	unsigned int cpu;
@@ -167,7 +173,6 @@ static void pnv_smp_cpu_kill_self(void)
 	/* Standard hot unplug procedure */
 
 	idle_task_exit();
-	current->active_mm = NULL; /* for sanity */
 	cpu = smp_processor_id();
 	DBG("CPU%d offline\n", cpu);
 	generic_set_cpu_dead(cpu);
@@ -343,7 +348,7 @@ static void __init pnv_smp_probe(void)
 	}
 }
 
-static int pnv_system_reset_exception(struct pt_regs *regs)
+noinstr static int pnv_system_reset_exception(struct pt_regs *regs)
 {
 	if (smp_handle_nmi_ipi(regs))
 		return 1;
@@ -418,6 +423,7 @@ static struct smp_ops_t pnv_smp_ops = {
 #ifdef CONFIG_HOTPLUG_CPU
 	.cpu_disable	= pnv_smp_cpu_disable,
 	.cpu_die	= generic_cpu_die,
+	.cpu_offline_self = pnv_cpu_offline_self,
 #endif /* CONFIG_HOTPLUG_CPU */
 };
 
@@ -431,8 +437,7 @@ void __init pnv_smp_init(void)
 	smp_ops = &pnv_smp_ops;
 
 #ifdef CONFIG_HOTPLUG_CPU
-	ppc_md.cpu_die	= pnv_smp_cpu_kill_self;
-#ifdef CONFIG_KEXEC_CORE
+#ifdef CONFIG_CRASH_DUMP
 	crash_wake_offline = 1;
 #endif
 #endif

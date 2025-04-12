@@ -7,65 +7,108 @@
 #define pr_fmt(fmt)	"hisi_zip: " fmt
 
 #include <linux/list.h>
-#include "../qm.h"
-#include "../sgl.h"
-
-/* hisi_zip_sqe dw3 */
-#define HZIP_BD_STATUS_M			GENMASK(7, 0)
-/* hisi_zip_sqe dw9 */
-#define HZIP_REQ_TYPE_M				GENMASK(7, 0)
-#define HZIP_ALG_TYPE_ZLIB			0x02
-#define HZIP_ALG_TYPE_GZIP			0x03
-#define HZIP_BUF_TYPE_M				GENMASK(11, 8)
-#define HZIP_PBUFFER				0x0
-#define HZIP_SGL				0x1
+#include <linux/hisi_acc_qm.h>
 
 enum hisi_zip_error_type {
 	/* negative compression */
 	HZIP_NC_ERR = 0x0d,
 };
 
+struct hisi_zip_dfx {
+	atomic64_t send_cnt;
+	atomic64_t recv_cnt;
+	atomic64_t send_busy_cnt;
+	atomic64_t err_bd_cnt;
+};
+
 struct hisi_zip_ctrl;
 
 struct hisi_zip {
 	struct hisi_qm qm;
-	struct list_head list;
 	struct hisi_zip_ctrl *ctrl;
+	struct hisi_zip_dfx dfx;
 };
 
 struct hisi_zip_sqe {
 	u32 consumed;
 	u32 produced;
 	u32 comp_data_length;
+	/*
+	 * status: 0~7 bits
+	 * rsvd: 8~31 bits
+	 */
 	u32 dw3;
 	u32 input_data_length;
-	u32 lba_l;
-	u32 lba_h;
+	u32 dw5;
+	u32 dw6;
+	/*
+	 * in_sge_data_offset: 0~23 bits
+	 * rsvd: 24~27 bits
+	 * sqe_type: 29~31 bits
+	 */
 	u32 dw7;
+	/*
+	 * out_sge_data_offset: 0~23 bits
+	 * rsvd: 24~31 bits
+	 */
 	u32 dw8;
+	/*
+	 * request_type: 0~7 bits
+	 * buffer_type: 8~11 bits
+	 * rsvd: 13~31 bits
+	 */
 	u32 dw9;
 	u32 dw10;
-	u32 priv_info;
+	u32 dw11;
 	u32 dw12;
-	u32 tag;
+	/* tag: in sqe type 0 */
+	u32 dw13;
 	u32 dest_avail_out;
-	u32 rsvd0;
-	u32 comp_head_addr_l;
-	u32 comp_head_addr_h;
+	u32 dw15;
+	u32 dw16;
+	u32 dw17;
 	u32 source_addr_l;
 	u32 source_addr_h;
 	u32 dest_addr_l;
 	u32 dest_addr_h;
-	u32 stream_ctx_addr_l;
-	u32 stream_ctx_addr_h;
-	u32 cipher_key1_addr_l;
-	u32 cipher_key1_addr_h;
-	u32 cipher_key2_addr_l;
-	u32 cipher_key2_addr_h;
+	u32 dw22;
+	u32 dw23;
+	u32 dw24;
+	u32 dw25;
+	/* tag: in sqe type 3 */
+	u32 dw26;
+	u32 dw27;
 	u32 rsvd1[4];
 };
 
-struct hisi_zip *find_zip_device(int node);
-int hisi_zip_register_to_crypto(void);
-void hisi_zip_unregister_from_crypto(void);
+enum zip_cap_table_type {
+	QM_RAS_NFE_TYPE,
+	QM_RAS_NFE_RESET,
+	QM_RAS_CE_TYPE,
+	ZIP_RAS_NFE_TYPE,
+	ZIP_RAS_NFE_RESET,
+	ZIP_RAS_CE_TYPE,
+	ZIP_CORE_INFO,
+	ZIP_CORE_EN,
+	ZIP_DRV_ALG_BITMAP_TB,
+	ZIP_ALG_BITMAP,
+	ZIP_CORE1_BITMAP,
+	ZIP_CORE2_BITMAP,
+	ZIP_CORE3_BITMAP,
+	ZIP_CORE4_BITMAP,
+	ZIP_CORE5_BITMAP,
+};
+
+int zip_create_qps(struct hisi_qp **qps, int qp_num, int node);
+int hisi_zip_register_to_crypto(struct hisi_qm *qm);
+void hisi_zip_unregister_from_crypto(struct hisi_qm *qm);
+bool hisi_zip_alg_support(struct hisi_qm *qm, u32 alg);
+int hisi_dae_set_user_domain(struct hisi_qm *qm);
+int hisi_dae_set_alg(struct hisi_qm *qm);
+void hisi_dae_hw_error_disable(struct hisi_qm *qm);
+void hisi_dae_hw_error_enable(struct hisi_qm *qm);
+void hisi_dae_open_axi_master_ooo(struct hisi_qm *qm);
+int hisi_dae_close_axi_master_ooo(struct hisi_qm *qm);
+bool hisi_dae_dev_is_abnormal(struct hisi_qm *qm);
+enum acc_err_result hisi_dae_get_err_result(struct hisi_qm *qm);
 #endif
